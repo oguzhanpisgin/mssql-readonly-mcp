@@ -1,0 +1,59 @@
+# CodeQL code scanning for the C# code and for the workflows themselves (language `actions`).
+# Third-party actions are pinned by full commit SHA (looked up with `git ls-remote --tags`); the version is in the
+# comment after each SHA. checkout and setup-dotnet use the same pins as ci.yml.
+#
+# C# is built by hand with the same build command as ci.yml (build mode `manual`), so CodeQL extracts the code as
+# the compiler sees it, with the NuGet packages restored. Build mode `none` would read the sources without a build
+# and guess the types from referenced packages, which is less exact for code that works mostly on ScriptDom and
+# Microsoft.Data.SqlClient types.
+
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+            build-mode: manual
+          - language: actions
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - if: matrix.build-mode == 'manual'
+        name: Build
+        run: dotnet build MssqlReadOnlyMcp.slnx -c Release
+
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: "/language:${{ matrix.language }}"

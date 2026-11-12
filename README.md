@@ -1,3 +1,10 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/banner-dark.svg">
+  <img src="docs/img/banner-light.svg" width="100%" alt="mssql-readonly-mcp: an MCP server that lets an AI assistant read one on-premises SQL Server database.">
+</picture>
+
+[![CI](https://img.shields.io/github/actions/workflow/status/oguzhanpisgin/mssql-readonly-mcp/ci.yml?branch=main&label=CI)](https://github.com/oguzhanpisgin/mssql-readonly-mcp/actions/workflows/ci.yml) [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE) ![.NET 10](https://img.shields.io/badge/.NET-10-blue) [![tested on: SQL Server 2019 | 2022 | 2025](https://img.shields.io/badge/tested%20on-SQL%20Server%202019%20%7C%202022%20%7C%202025-blue)](#1-prerequisites)
+
 # mssql-readonly-mcp
 
 An MCP server that lets an AI assistant read one on-premises SQL Server database.
@@ -5,8 +12,14 @@ Its SQL tool accepts only text that passes an allowlist for one plain SELECT, an
 that fails its permission check (see "What `check-login` refuses" for what that check covers and what it does not).
 It keeps a tamper-evident record (a hash-chained audit file) of every question asked.
 
-Status: a sample, published as it is; not a supported product. The tests it passed are listed under
-"Building and testing".
+Status: early release, actively maintained. Tested on SQL Server 2019, 2022 and 2025 (Linux container images) on
+every change; what it promises, what it does not solve and how it was tested ("Building and testing") are written
+below.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/architecture-dark.svg">
+  <img src="docs/img/architecture-light.svg" width="100%" alt="Architecture: an AI assistant starts mssql-readonly-mcp as a local stdio process and sends it tool calls. Inside the server: a read-only gate that accepts only text that passes an allowlist for one plain SELECT; a login check at startup: the server will not start with a login that fails its permission check (exit code 3); a hash-chained audit log, written before a result goes back. The allowed SELECT runs on one on-premises SQL Server database in a transaction that is always rolled back. Only the AI vendor is outside your building: it receives the rows the assistant reads, with table and column names and SQL Server error text.">
+</picture>
 
 ## What it promises
 
@@ -457,6 +470,11 @@ example above).
 
 ## What SQL is allowed
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/refused-query-dark.svg">
+  <img src="docs/img/refused-query-light.svg" width="100%" alt="Two run_query calls, step by step. A, DELETE FROM dbo.Orders: the read-only gate refuses it with NotSelect inside the server process, nothing is sent to SQL Server, an audit line is written, and the client gets an error and no data. B, a plain SELECT: a new connection opens, the text runs in a transaction that is always rolled back, rows come back up to the caps, an audit line is written, and the client gets the JSON result. If the audit line cannot be written, the call returns AuditUnavailable and no data, and for B the query has still run by then; an allowed call also fails with no data on a second result set or rows changed, unless a cap cut the first result set.">
+</picture>
+
 `run_query` accepts one plain SELECT statement built only from these forms (node types listed in
 `src/MssqlReadOnlyMcp.Gate/Allowlist.cs`, field `NodeTypes`: 84 types at the time of writing; recount with the
 number of `typeof(` lines in that list):
@@ -842,8 +860,25 @@ Server commit or version:
 The audit line for the call (or "none"):
 ```
 
-Where to send it: an issue at <https://github.com/oguzhanpisgin/mssql-readonly-mcp/issues>. For a problem that should not be public first, see
-[SECURITY.md](SECURITY.md).
+Where to send it: privately, through GitHub private vulnerability reporting (the "Report a vulnerability"
+button under the Security tab of <https://github.com/oguzhanpisgin/mssql-readonly-mcp>), as
+[SECURITY.md](SECURITY.md) "Reporting a problem" describes. Please do not open a public issue for it.
+
+## Support and maintenance
+
+- Questions and bugs: [GitHub Issues](https://github.com/oguzhanpisgin/mssql-readonly-mcp/issues), through the forms
+  described in [CONTRIBUTING.md](CONTRIBUTING.md). The maintainer reads and answers them, with no set time and no
+  promise that a pull request is merged.
+- Security reports: privately, through GitHub private vulnerability reporting (the "Report a vulnerability" button
+  under the Security tab), as [SECURITY.md](SECURITY.md) "Reporting a problem" describes. We aim to answer within
+  3 days; this is an aim, not a guarantee, and it is for security reports only.
+- Fixes land in the latest release (none is published yet: build from source as "Five-minute start" shows);
+  versions follow semantic versioning.
+- One maintainer today (GitHub account `oguzhanpisgin`). MIT licence, no warranty (see [LICENSE](LICENSE)): test
+  against your own server before you rely on it.
+
+This is an independent project, not affiliated with or endorsed by Microsoft, Anthropic or any other vendor;
+product names are trademarks of their owners.
 
 ## Building and testing
 
@@ -872,7 +907,9 @@ dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release
   scratch database with 20,000 two-column tables (`Id int`, `Name nvarchar(50)`), with the plan cache cleared
   before each run, took 1.7 to 1.8 s on 2022, 1.8 s on 2019 and 1.9 to 2.1 s on 2025 (three runs each).
 - The SQL Server container images run on x86-64 Linux hosts only (Docker Desktop on Windows uses a Linux VM).
-- `.github/workflows/ci.yml` runs the same steps on GitHub. It has not run yet.
+- `.github/workflows/ci.yml` runs the same steps on GitHub on every push and pull request: the build and unit tests,
+  then, when they pass, the integration tests on each of the three images; the CI badge at the top shows the result
+  of the last run on `main`.
 
 ## Licence
 

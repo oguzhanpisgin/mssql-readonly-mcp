@@ -230,5 +230,7 @@ Limits of this measurement:
 Report it privately through GitHub private vulnerability reporting: the "Report a vulnerability" button under the
 Security tab of <https://github.com/oguzhanpisgin/mssql-readonly-mcp>. Please do not open a public issue for it.
 
+We aim to answer within 3 days. The maintainer is one person, so this is an aim, not a guarantee.
+
 Please include the report format from the README section "Try to break it". Do not test against a database you are
 not allowed to test.

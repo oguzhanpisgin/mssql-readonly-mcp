@@ -1,0 +1,32 @@
+# Package versions are set in each .csproj (PackageReference with Version; there is no Directory.Packages.props).
+# Actions in .github/workflows are pinned by full commit SHA with the version in a comment.
+
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    rebase-strategy: disabled
+    groups:
+      nuget-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    rebase-strategy: disabled
+    groups:
+      actions-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

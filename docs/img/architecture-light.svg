@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1016" role="img" aria-labelledby="title desc">
+  <title id="title">mssql-readonly-mcp architecture</title>
+  <desc id="desc">An AI assistant, an MCP client such as Claude Code or Claude Desktop, starts the mssql-readonly-mcp server as a local stdio process and sends it tool calls over stdio: list_tables, describe_table, or run_query with one SQL text. The server answers with JSON within the row, character and time caps, or an error whose text starts with its reason word. The server has three parts. The read-only gate accepts only run_query text that passes an allowlist for one plain SELECT; a refused text opens no connection. The login check at startup runs one query asking SQL Server what the login may do, and will not start, with exit code 3 and no override, with a login that fails that check; the check inspects the server and the connected database only. The hash-chained audit log writes one JSON line per call, plus one startup line, after the SQL has run and flushed to disk before the result goes back; if it cannot be written, the call returns an error and no data. Toward SQL Server, run_query opens a new connection, runs the session settings, then sends the allowed SELECT exactly as received inside a transaction that is always rolled back; rows come back up to the caps. SQL Server holds one on-premises database; the integration tests passed on SQL Server 2019, 2022 and 2025; the recommended login, made by create-readonly-login.sql, gets SELECT only on the tables and views you list in it. The server reads and verifies the audit file at start, then appends a startup line and one line per call, flushed to disk. The audit file holds one JSON object per line, each with the hash of the line before it. All of this is inside your building, except the AI vendor: it runs the model and receives the rows the assistant reads, with table and column names and SQL Server error text.</desc>
+  <style>
+    .bg{fill:#ffffff}
+    text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;font-size:16px;fill:#1f2328}
+    .mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+    .h{font-size:18px;font-weight:600}
+    .b{font-weight:600}
+    .mut{fill:#59636e}
+    .n{fill:#f6f8fa;stroke:#d0d7de;stroke-width:1.5}
+    .blu{fill:#ddf4ff;stroke:#0969da;stroke-width:1.5}
+    .amb{fill:#fff8c5;stroke:#9a6700;stroke-width:1.5}
+    .pur{fill:#fbefff;stroke:#8250df;stroke-width:1.5}
+    .grn{fill:#dafbe1;stroke:#1a7f37;stroke-width:1.5}
+    .red{fill:#ffebe9;stroke:#cf222e;stroke-width:1.5}
+    .ln{fill:none;stroke:#59636e;stroke-width:2}
+    .edge{fill:none;stroke:#59636e;stroke-width:1.5;stroke-dasharray:8 6}
+    .ah{fill:#59636e}
+    .i{fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+    .i-ink{stroke:#1f2328}
+    .i-mut{stroke:#59636e}
+    .i-blu{stroke:#0969da}
+    .i-amb{stroke:#9a6700}
+    .i-pur{stroke:#8250df}
+    .i-grn{stroke:#1a7f37}
+    .i-red{stroke:#cf222e}
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path class="ah" d="M0 0 L10 5 L0 10 Z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1000" height="1016"/>
+
+  <!-- Your building: everything except the AI vendor -->
+  <path class="edge" d="M10 36 H580 V214 H990 V1004 H10 Z"/>
+  <rect class="bg" x="26" y="26" width="140" height="20"/>
+  <text class="mut" x="34" y="42">your building</text>
+
+  <!-- AI assistant -->
+  <g>
+    <rect class="n" x="40" y="60" width="500" height="130" rx="10"/>
+    <rect class="i i-mut" x="58" y="80" width="58" height="40" rx="8"/>
+    <path class="i i-mut" d="M72 120 L68 134 L86 120"/>
+    <path class="i i-mut" d="M70 93 H104 M70 106 H94"/>
+    <text class="h" x="134" y="94">AI assistant</text>
+    <text x="134" y="120">An MCP client such as Claude Code</text>
+    <text x="134" y="144">or Claude Desktop. It starts this</text>
+    <text x="134" y="168">server as a local stdio process.</text>
+  </g>
+
+  <!-- AI vendor, outside the building -->
+  <g>
+    <rect class="n" x="610" y="30" width="360" height="170" rx="10"/>
+    <path class="i i-mut" d="M912 74 H946 A9 9 0 0 0 944 56 A13 13 0 0 0 920 52 A10 10 0 0 0 912 74 Z"/>
+    <text class="h" x="630" y="66">AI vendor</text>
+    <text class="mut" x="630" y="90">outside your building</text>
+    <text x="630" y="114">Runs the model. It receives the</text>
+    <text x="630" y="136">rows the assistant reads, with</text>
+    <text x="630" y="158">table and column names and</text>
+    <text x="630" y="180">SQL Server error text.</text>
+  </g>
+  <line class="ln" x1="540" y1="125" x2="606" y2="125" marker-end="url(#arrow)"/>
+
+  <!-- Client and server over stdio -->
+  <line class="ln" x1="76" y1="190" x2="76" y2="326" marker-end="url(#arrow)"/>
+  <line class="ln" x1="100" y1="330" x2="100" y2="194" marker-end="url(#arrow)"/>
+  <text class="b" x="124" y="236">MCP over stdio</text>
+  <text x="124" y="262">Request: <tspan class="mono">list_tables</tspan>, <tspan class="mono">describe_table</tspan> or <tspan class="mono">run_query</tspan> (one SQL text)</text>
+  <text x="124" y="288">Response: JSON within the row, character and time caps,</text>
+  <text x="124" y="312">or an error whose text starts with its reason word</text>
+
+  <!-- The server -->
+  <rect class="blu" x="20" y="330" width="960" height="350" rx="12"/>
+  <text class="mono h" x="40" y="364" style="font-size:20px">mssql-readonly-mcp</text>
+  <text x="290" y="364">a .NET 10 stdio MCP server; its three tools are marked read-only</text>
+
+  <!-- Part 1: read-only gate -->
+  <g>
+    <rect class="amb" x="32" y="382" width="304" height="284" rx="10"/>
+    <path class="i i-amb" d="M50 400 V432 M78 400 V432"/>
+    <rect class="i i-amb" x="44" y="406" width="40" height="9" rx="2"/>
+    <path class="i i-amb" d="M56 407 L60 414 M68 407 L72 414"/>
+    <text class="h" x="96" y="415">Read-only gate</text>
+    <text class="mut" x="96" y="437">on <tspan class="mono">run_query</tspan> text</text>
+    <text x="48" y="470">It accepts only text that</text>
+    <text x="48" y="492">passes an allowlist for one</text>
+    <text x="48" y="514">plain SELECT: every node in</text>
+    <text x="48" y="536">its syntax tree must be on</text>
+    <text x="48" y="558">a hand-written list.</text>
+    <text x="48" y="580">A refused text opens no</text>
+    <text x="48" y="602">connection.</text>
+  </g>
+
+  <!-- Part 2: login check at startup -->
+  <g>
+    <rect class="pur" x="348" y="382" width="304" height="284" rx="10"/>
+    <rect class="i i-pur" x="364" y="400" width="28" height="34" rx="3"/>
+    <rect class="i i-pur" x="371" y="396" width="14" height="7" rx="2"/>
+    <path class="i i-pur" d="M369 413 L372 416 L377 410 M369 425 L372 428 L377 422 M381 413 H387 M381 425 H387"/>
+    <text class="h" x="412" y="415">Login check</text>
+    <text class="mut" x="412" y="437">at startup</text>
+    <text x="364" y="470">One query asks SQL Server</text>
+    <text x="364" y="492">what the login may do.</text>
+    <text x="364" y="514">A login that fails its</text>
+    <text x="364" y="536">permission check is refused:</text>
+    <text x="364" y="558">exit code 3, no override.</text>
+    <text x="364" y="580">It inspects the server and</text>
+    <text x="364" y="602">the connected database only.</text>
+    <text x="364" y="624"><tspan class="mono">check-login</tspan> runs only</text>
+    <text x="364" y="646">the login check.</text>
+  </g>
+
+  <!-- Part 3: hash-chained audit log -->
+  <g>
+    <rect class="grn" x="664" y="382" width="304" height="284" rx="10"/>
+    <rect class="i i-grn" x="678" y="404" width="10" height="13" rx="2"/>
+    <rect class="i i-grn" x="694" y="404" width="10" height="13" rx="2"/>
+    <rect class="i i-grn" x="710" y="404" width="10" height="13" rx="2"/>
+    <path class="i i-grn" d="M688 410.5 H694 M704 410.5 H710"/>
+    <text class="h" x="736" y="415">Audit log</text>
+    <text class="mut" x="736" y="437">hash-chained</text>
+    <text x="680" y="470">Tamper-evident record:</text>
+    <text x="680" y="492">one JSON line per call,</text>
+    <text x="680" y="514">plus one startup line.</text>
+    <text x="680" y="536">Written after the SQL has</text>
+    <text x="680" y="558">run, flushed to disk before</text>
+    <text x="680" y="580">the result goes back.</text>
+    <text x="680" y="602">If it cannot be written:</text>
+    <text x="680" y="624">an error and no data.</text>
+    <text x="680" y="646">Check: <tspan class="mono">verify-audit</tspan></text>
+  </g>
+
+  <!-- Server to SQL Server: tool calls -->
+  <line class="ln" x1="70" y1="680" x2="70" y2="838" marker-end="url(#arrow)"/>
+  <line class="ln" x1="94" y1="842" x2="94" y2="684" marker-end="url(#arrow)"/>
+  <text x="116" y="712"><tspan class="mono">run_query</tspan>: a new connection,</text>
+  <text x="116" y="734">the session settings, then</text>
+  <text x="116" y="756">the allowed SELECT exactly</text>
+  <text x="116" y="778">as received, in a transaction</text>
+  <text x="116" y="800">that is always rolled back.</text>
+  <text x="116" y="822">Back: rows, up to the caps.</text>
+
+  <!-- Server to SQL Server: startup check -->
+  <line class="ln" x1="440" y1="680" x2="440" y2="838" marker-end="url(#arrow)"/>
+  <text x="460" y="734">At startup, before</text>
+  <text x="460" y="756">serving: the login</text>
+  <text x="460" y="778">check's one query</text>
+
+  <!-- Server and audit file: read and verified at start (up), one line appended per call (down) -->
+  <line class="ln" x1="700" y1="680" x2="700" y2="838" marker-end="url(#arrow)"/>
+  <line class="ln" x1="724" y1="842" x2="724" y2="684" marker-end="url(#arrow)"/>
+  <text x="744" y="724">Read and verified</text>
+  <text x="744" y="746">at start; then a startup</text>
+  <text x="744" y="768">line and one per call,</text>
+  <text x="744" y="790">flushed to disk</text>
+
+  <!-- SQL Server -->
+  <g>
+    <rect class="n" x="32" y="842" width="620" height="146" rx="10"/>
+    <ellipse class="i i-ink" cx="78" cy="868" rx="24" ry="8"/>
+    <path class="i i-ink" d="M54 868 V920 A24 8 0 0 0 102 920 V868 M54 894 A24 8 0 0 0 102 894"/>
+    <text class="h" x="124" y="874">SQL Server</text>
+    <text x="124" y="898">One on-premises database.</text>
+    <text x="124" y="922">Integration tests passed on 2019, 2022 and 2025.</text>
+    <text x="124" y="946">Use the login from <tspan class="mono">create-readonly-login.sql</tspan>:</text>
+    <text x="124" y="970">SELECT only on the tables and views you list</text>
+  </g>
+
+  <!-- Audit file -->
+  <g>
+    <rect class="n" x="664" y="842" width="304" height="146" rx="10"/>
+    <path class="i i-grn" d="M928 854 H944 L952 862 V882 H928 Z M944 854 V862 H952"/>
+    <text class="h" x="680" y="874">Audit file</text>
+    <text x="680" y="898">One JSON object per line;</text>
+    <text x="680" y="922">each holds the hash of</text>
+    <text x="680" y="946">the line before it.</text>
+    <text class="mono" x="680" y="970">MSSQL_MCP_AUDIT_LOG</text>
+  </g>
+</svg>

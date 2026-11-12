@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">mssql-readonly-mcp social preview</title>
+  <desc id="desc">The name mssql-readonly-mcp and the sentence: An MCP server that lets an AI assistant read one on-premises SQL Server database. Below, a strip: an AI assistant (MCP client) talks over stdio to mssql-readonly-mcp, which has a read-only gate, a login check at startup and a hash-chained audit log, and which reads from SQL Server. Footer: MIT licence, .NET 10, stdio MCP server.</desc>
+  <style>
+    .bg{fill:#0d1117}
+    text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;font-size:22px;fill:#e6edf3}
+    .mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+    .name{font-size:72px;font-weight:700}
+    .lead{font-size:36px}
+    .h{font-size:26px;font-weight:600}
+    .mut{fill:#9198a1}
+    .n{fill:#151b23;stroke:#3d444d;stroke-width:2}
+    .blu{fill:#10243e;stroke:#4493f8;stroke-width:2}
+    .amb{fill:#2b2111;stroke:#d29922;stroke-width:2}
+    .pur{fill:#251c3d;stroke:#ab7df8;stroke-width:2}
+    .grn{fill:#10281b;stroke:#3fb950;stroke-width:2}
+    .ln{fill:none;stroke:#9198a1;stroke-width:3}
+    .ah{fill:#9198a1}
+    .i{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+    .i-ink{stroke:#e6edf3}
+    .i-mut{stroke:#9198a1}
+    .i-amb{stroke:#d29922}
+    .i-pur{stroke:#ab7df8}
+    .i-grn{stroke:#3fb950}
+    .db{fill:#10243e;stroke:#4493f8;stroke-width:6;stroke-linejoin:round}
+    .lens{fill:#0d1117;stroke:#e6edf3;stroke-width:7}
+    .handle{fill:none;stroke:#e6edf3;stroke-width:12;stroke-linecap:round}
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto">
+      <path class="ah" d="M0 0 L10 5 L0 10 Z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="640"/>
+
+  <!-- Mark (same drawing as the banner, scaled) -->
+  <g transform="translate(36 40) scale(1.1)">
+    <path class="db" d="M52 66 V166 A44 14 0 0 0 140 166 V66"/>
+    <ellipse class="db" cx="96" cy="66" rx="44" ry="14"/>
+    <path class="db" style="fill:none" d="M52 100 A44 14 0 0 0 140 100 M52 134 A44 14 0 0 0 140 134"/>
+    <circle class="lens" cx="138" cy="150" r="26"/>
+    <path class="handle" d="M157 169 L176 188"/>
+  </g>
+
+  <text class="mono name" x="256" y="140">mssql-readonly-mcp</text>
+  <text class="lead" x="256" y="200">An MCP server that lets an AI assistant</text>
+  <text class="lead" x="256" y="250">read one on-premises SQL Server database.</text>
+
+  <!-- Reduced architecture strip -->
+  <g>
+    <rect class="n" x="80" y="328" width="260" height="180" rx="12"/>
+    <rect class="i i-mut" x="104" y="352" width="52" height="36" rx="7"/>
+    <path class="i i-mut" d="M116 388 L112 400 L128 388 M114 364 H146 M114 376 H136"/>
+    <text class="h" x="104" y="436">AI assistant</text>
+    <text class="mut" x="104" y="468">MCP client</text>
+  </g>
+  <line class="ln" x1="340" y1="418" x2="418" y2="418" marker-end="url(#arrow)"/>
+  <text class="mut" x="352" y="404">stdio</text>
+
+  <g>
+    <rect class="blu" x="424" y="296" width="452" height="244" rx="14"/>
+    <text class="mono h" x="448" y="334">mssql-readonly-mcp</text>
+  </g>
+  <g>
+    <rect class="amb" x="448" y="346" width="404" height="54" rx="8"/>
+    <path class="i i-amb" d="M465 357 V389 M491 357 V389"/>
+    <rect class="i i-amb" x="458" y="363" width="40" height="11" rx="2"/>
+    <path class="i i-amb" d="M470 364.5 L475 372.5 M482 364.5 L487 372.5"/>
+    <text x="508" y="381">read-only gate</text>
+  </g>
+  <g>
+    <rect class="pur" x="448" y="408" width="404" height="54" rx="8"/>
+    <path class="i i-pur" d="M468 435 L473 441 L483 429 M488 435 H494"/>
+    <text x="508" y="443">login check at startup</text>
+  </g>
+  <g>
+    <rect class="grn" x="448" y="470" width="404" height="54" rx="8"/>
+    <path class="i i-grn" d="M462 491 H469 V503 H462 Z M473 497 H477 M481 491 H488 V503 H481 Z"/>
+    <text x="508" y="505">hash-chained audit log</text>
+  </g>
+
+  <line class="ln" x1="876" y1="418" x2="944" y2="418" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect class="n" x="950" y="328" width="250" height="180" rx="12"/>
+    <ellipse class="i i-ink" cx="994" cy="356" rx="20" ry="7"/>
+    <path class="i i-ink" d="M974 356 V392 A20 7 0 0 0 1014 392 V356 M974 374 A20 7 0 0 0 1014 374"/>
+    <text class="h" x="974" y="432">SQL Server</text>
+    <text class="mut" x="974" y="462">tested on</text>
+    <text class="mut" x="974" y="490">2019, 2022, 2025</text>
+  </g>
+
+  <text class="mut" x="80" y="590">MIT licence · .NET 10 · stdio MCP server</text>
+</svg>

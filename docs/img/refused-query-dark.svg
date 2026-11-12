@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1214" role="img" aria-labelledby="title desc">
+  <title id="title">A refused and an allowed run_query call, step by step</title>
+  <desc id="desc">Two run_query calls side by side. Step 1: the client sends a run_query call over stdio; example A is DELETE FROM dbo.Orders, example B is SELECT TOP (3) Name FROM dbo.Customers ORDER BY CustomerId. Step 2: the read-only gate checks the text inside the server process; ScriptDom parses it, it must be one plain SELECT with every node on the allowlist, and nothing has been sent to SQL Server yet. Path A, refused, marked with a cross: step 3, A is refused with reason NotSelect because the statement is not a plain SELECT; the refusal happens inside the server process, before any connection; step 4, nothing is sent to SQL Server: no connection is opened, no command is created, and a trace of the reader login shows no batch, RPC or login event; step 5, an audit line is appended and flushed with decision refused, reason NotSelect, the SQL text as received and rows null, before the error goes back; step 6, the client gets an error and no data: isError true, text NotSelect: refused by the read-only gate; DeleteStatement at line 1, column 1. Path B, allowed, marked with a check: step 3, a new connection opens and the session settings run first: LOCK_TIMEOUT, DEADLOCK_PRIORITY LOW, QUOTED_IDENTIFIER ON, NOCOUNT OFF; step 4, the text is sent to SQL Server exactly as received inside a transaction, rows are read up to the row, character and time caps, and the transaction is always rolled back; step 5, an audit line is appended and flushed with decision allowed, reason Allowed, sql, tables, rows and result_sha256, after the SQL has run and before the result goes back; step 6, the client gets the JSON result with columns, rows, row_count, truncated and truncated_reason. Note: if the audit line cannot be written, the call returns AuditUnavailable and no data, and for B the query has still run by then. An allowed call fails with no data if SQL Server returns a second result set (MultipleResultSets) or reports rows changed (RowsChanged), unless a cap cut the first result set; both checks run after the server ran the text.</desc>
+  <style>
+    .bg{fill:#0d1117}
+    text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;font-size:16px;fill:#e6edf3}
+    .mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+    .h{font-size:18px;font-weight:600}
+    .b{font-weight:600}
+    .mut{fill:#9198a1}
+    .on{fill:#0d1117;font-weight:600;font-size:17px}
+    .n{fill:#151b23;stroke:#3d444d;stroke-width:1.5}
+    .blu{fill:#10243e;stroke:#4493f8;stroke-width:1.5}
+    .amb{fill:#2b2111;stroke:#d29922;stroke-width:1.5}
+    .grn{fill:#10281b;stroke:#3fb950;stroke-width:1.5}
+    .red{fill:#301419;stroke:#f85149;stroke-width:1.5}
+    .k-n{fill:#9198a1}
+    .k-blu{fill:#4493f8}
+    .k-amb{fill:#d29922}
+    .k-red{fill:#f85149}
+    .ln{fill:none;stroke:#9198a1;stroke-width:2}
+    .ah{fill:#9198a1}
+    .i{fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+    .x{stroke-width:3.5}
+    .i-ink{stroke:#e6edf3}
+    .i-blu{stroke:#4493f8}
+    .i-grn{stroke:#3fb950}
+    .i-red{stroke:#f85149}
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path class="ah" d="M0 0 L10 5 L0 10 Z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1000" height="1214"/>
+  <text class="h" x="20" y="34" style="font-size:20px">A refused and an allowed <tspan class="mono">run_query</tspan> call, step by step</text>
+
+  <!-- 1: the call -->
+  <g>
+    <rect class="n" x="20" y="52" width="960" height="166" rx="10"/>
+    <circle class="k-n" cx="52" cy="84" r="16"/>
+    <text class="on" x="52" y="90" text-anchor="middle">1</text>
+    <text class="h" x="80" y="90">The client sends a <tspan class="mono">run_query</tspan> call over stdio</text>
+  </g>
+  <g>
+    <rect class="red" x="80" y="106" width="420" height="96" rx="8"/>
+    <text class="b" x="96" y="135">Example A</text>
+    <text class="mono" x="96" y="163">DELETE FROM dbo.Orders</text>
+  </g>
+  <g>
+    <rect class="blu" x="516" y="106" width="448" height="96" rx="8"/>
+    <text class="b" x="532" y="135">Example B</text>
+    <text class="mono" x="532" y="161">SELECT TOP (3) Name FROM dbo.Customers</text>
+    <text class="mono" x="532" y="185">ORDER BY CustomerId</text>
+  </g>
+  <line class="ln" x1="500" y1="218" x2="500" y2="238" marker-end="url(#arrow)"/>
+
+  <!-- 2: the gate -->
+  <g>
+    <rect class="amb" x="20" y="242" width="960" height="108" rx="10"/>
+    <circle class="k-amb" cx="52" cy="274" r="16"/>
+    <text class="on" x="52" y="280" text-anchor="middle">2</text>
+    <text class="h" x="80" y="280">The read-only gate checks the text inside the server process</text>
+    <text x="80" y="306">ScriptDom parses it; it must be one plain SELECT, every node on the allowlist.</text>
+    <text x="80" y="330">Nothing has been sent to SQL Server yet.</text>
+  </g>
+  <path class="ln" d="M500 350 V370 H255 V392" marker-end="url(#arrow)"/>
+  <path class="ln" d="M500 370 H745 V392" marker-end="url(#arrow)"/>
+
+  <!-- Path A: refused -->
+  <g>
+    <rect class="red" x="20" y="396" width="470" height="124" rx="10"/>
+    <circle class="k-red" cx="52" cy="426" r="16"/>
+    <text class="on" x="52" y="432" text-anchor="middle">3</text>
+    <path class="i x i-red" d="M452 416 L468 432 M468 416 L452 432"/>
+    <text class="h" x="80" y="432">A is refused: <tspan class="mono">NotSelect</tspan></text>
+    <text x="80" y="458">The statement is not a plain SELECT.</text>
+    <text x="80" y="480">The refusal happens inside the server</text>
+    <text x="80" y="502">process, before any connection.</text>
+  </g>
+  <line class="ln" x1="255" y1="520" x2="255" y2="544" marker-end="url(#arrow)"/>
+  <g>
+    <rect class="red" x="20" y="548" width="470" height="146" rx="10"/>
+    <circle class="k-red" cx="52" cy="578" r="16"/>
+    <text class="on" x="52" y="584" text-anchor="middle">4</text>
+    <ellipse class="i i-ink" cx="460" cy="567" rx="13" ry="4.5"/>
+    <path class="i i-ink" d="M447 567 V591 A13 4.5 0 0 0 473 591 V567"/>
+    <path class="i x i-red" d="M444 563 L476 597 M476 563 L444 597"/>
+    <text class="h" x="80" y="584">Nothing is sent to SQL Server</text>
+    <text x="80" y="610">No connection is opened and no</text>
+    <text x="80" y="632">command is created. A trace of the</text>
+    <text x="80" y="654">reader login shows no batch, RPC</text>
+    <text x="80" y="676">or login event.</text>
+  </g>
+  <line class="ln" x1="255" y1="694" x2="255" y2="718" marker-end="url(#arrow)"/>
+  <g>
+    <rect class="red" x="20" y="722" width="470" height="146" rx="10"/>
+    <circle class="k-red" cx="52" cy="752" r="16"/>
+    <text class="on" x="52" y="758" text-anchor="middle">5</text>
+    <rect class="i i-grn" x="428" y="745" width="10" height="13" rx="2"/>
+    <rect class="i i-grn" x="444" y="745" width="10" height="13" rx="2"/>
+    <rect class="i i-grn" x="460" y="745" width="10" height="13" rx="2"/>
+    <path class="i i-grn" d="M438 751.5 H444 M454 751.5 H460"/>
+    <text class="h" x="80" y="758">Audit line appended and flushed</text>
+    <text x="80" y="784">decision <tspan class="mono">refused</tspan>, reason <tspan class="mono">NotSelect</tspan>,</text>
+    <text x="80" y="806"><tspan class="mono">sql</tspan>: the text as received; <tspan class="mono">rows</tspan>: null.</text>
+    <text x="80" y="828">Written before the error goes back.</text>
+  </g>
+  <line class="ln" x1="255" y1="868" x2="255" y2="892" marker-end="url(#arrow)"/>
+  <g>
+    <rect class="red" x="20" y="896" width="470" height="124" rx="10"/>
+    <circle class="k-red" cx="52" cy="926" r="16"/>
+    <text class="on" x="52" y="932" text-anchor="middle">6</text>
+    <text class="h" x="80" y="932">The client gets an error, no data</text>
+    <text x="80" y="958"><tspan class="mono">isError: true</tspan>, with the text</text>
+    <text class="mono" x="80" y="980">NotSelect: refused by the read-only gate;</text>
+    <text class="mono" x="80" y="1002">DeleteStatement at line 1, column 1</text>
+  </g>
+
+  <!-- Path B: allowed -->
+  <g>
+    <rect class="blu" x="510" y="396" width="470" height="124" rx="10"/>
+    <circle class="k-blu" cx="542" cy="426" r="16"/>
+    <text class="on" x="542" y="432" text-anchor="middle">3</text>
+    <path class="i x i-blu" d="M942 425 L948 432 L960 416"/>
+    <text class="h" x="570" y="432">B is allowed: a new connection</text>
+    <text x="570" y="458">The session settings run first:</text>
+    <text class="mono" x="570" y="480">LOCK_TIMEOUT, DEADLOCK_PRIORITY LOW,</text>
+    <text class="mono" x="570" y="502">QUOTED_IDENTIFIER ON, NOCOUNT OFF</text>
+  </g>
+  <line class="ln" x1="745" y1="520" x2="745" y2="544" marker-end="url(#arrow)"/>
+  <g>
+    <rect class="blu" x="510" y="548" width="470" height="146" rx="10"/>
+    <circle class="k-blu" cx="542" cy="578" r="16"/>
+    <text class="on" x="542" y="584" text-anchor="middle">4</text>
+    <ellipse class="i i-ink" cx="950" cy="567" rx="13" ry="4.5"/>
+    <path class="i i-ink" d="M937 567 V591 A13 4.5 0 0 0 963 591 V567"/>
+    <text class="h" x="570" y="584">Sent to SQL Server</text>
+    <text x="570" y="610">The text runs exactly as received,</text>
+    <text x="570" y="632">inside a transaction; rows are read</text>
+    <text x="570" y="654">up to the row, character and time caps.</text>
+    <text x="570" y="676">The transaction is always rolled back.</text>
+  </g>
+  <line class="ln" x1="745" y1="694" x2="745" y2="718" marker-end="url(#arrow)"/>
+  <g>
+    <rect class="blu" x="510" y="722" width="470" height="146" rx="10"/>
+    <circle class="k-blu" cx="542" cy="752" r="16"/>
+    <text class="on" x="542" y="758" text-anchor="middle">5</text>
+    <rect class="i i-grn" x="918" y="745" width="10" height="13" rx="2"/>
+    <rect class="i i-grn" x="934" y="745" width="10" height="13" rx="2"/>
+    <rect class="i i-grn" x="950" y="745" width="10" height="13" rx="2"/>
+    <path class="i i-grn" d="M928 751.5 H934 M944 751.5 H950"/>
+    <text class="h" x="570" y="758">Audit line appended and flushed</text>
+    <text x="570" y="784">decision <tspan class="mono">allowed</tspan>, reason <tspan class="mono">Allowed</tspan>,</text>
+    <text x="570" y="806"><tspan class="mono">sql</tspan>, <tspan class="mono">tables</tspan>, <tspan class="mono">rows</tspan>, <tspan class="mono">result_sha256</tspan>;</text>
+    <text x="570" y="828">written after the SQL has run, before</text>
+    <text x="570" y="850">the result goes back.</text>
+  </g>
+  <line class="ln" x1="745" y1="868" x2="745" y2="892" marker-end="url(#arrow)"/>
+  <g>
+    <rect class="blu" x="510" y="896" width="470" height="124" rx="10"/>
+    <circle class="k-blu" cx="542" cy="926" r="16"/>
+    <text class="on" x="542" y="932" text-anchor="middle">6</text>
+    <text class="h" x="570" y="932">The client gets the JSON result</text>
+    <text x="570" y="958"><tspan class="mono">columns</tspan>, <tspan class="mono">rows</tspan>, <tspan class="mono">row_count</tspan>,</text>
+    <text x="570" y="980"><tspan class="mono">truncated</tspan>, <tspan class="mono">truncated_reason</tspan></text>
+  </g>
+
+  <!-- Note -->
+  <g>
+    <rect class="n" x="20" y="1048" width="960" height="148" rx="10"/>
+    <text x="44" y="1078">If the audit line cannot be written, the call returns <tspan class="mono">AuditUnavailable</tspan> and no data;</text>
+    <text x="44" y="1102">for B the query has still run by then.</text>
+    <text x="44" y="1126">An allowed call fails with no data on a second result set (<tspan class="mono">MultipleResultSets</tspan>)</text>
+    <text x="44" y="1150">or rows changed (<tspan class="mono">RowsChanged</tspan>), unless a cap cut the first result set;</text>
+    <text x="44" y="1174">both checks run after the server ran the text.</text>
+  </g>
+</svg>

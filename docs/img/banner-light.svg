@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
+  <title id="title">mssql-readonly-mcp</title>
+  <desc id="desc">Title image: a database cylinder with a magnifying glass, the name mssql-readonly-mcp, and the sentence: An MCP server that lets an AI assistant read one on-premises SQL Server database.</desc>
+  <style>
+    text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:#1f2328}
+    .mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+    .name{font-size:50px;font-weight:700}
+    .lead{font-size:32px}
+    .mut{fill:#59636e}
+    .panel{fill:#f6f8fa;stroke:#d0d7de;stroke-width:2}
+    .db{fill:#ddf4ff;stroke:#0969da;stroke-width:5;stroke-linejoin:round}
+    .lens{fill:#f6f8fa;stroke:#1f2328;stroke-width:6}
+    .handle{fill:none;stroke:#1f2328;stroke-width:10;stroke-linecap:round}
+  </style>
+
+  <rect class="panel" x="1" y="1" width="958" height="238" rx="16"/>
+
+  <!-- Mark: a database cylinder read through a magnifying glass (self-drawn) -->
+  <g transform="translate(-12 33) scale(0.72)">
+    <path class="db" d="M52 66 V166 A44 14 0 0 0 140 166 V66"/>
+    <ellipse class="db" cx="96" cy="66" rx="44" ry="14"/>
+    <path class="db" style="fill:none" d="M52 100 A44 14 0 0 0 140 100 M52 134 A44 14 0 0 0 140 134"/>
+    <circle class="lens" cx="138" cy="150" r="26"/>
+    <path class="handle" d="M157 169 L176 188"/>
+  </g>
+
+  <text class="mono name" x="136" y="100">mssql-readonly-mcp</text>
+  <text class="lead" x="136" y="154">An MCP server that lets an AI assistant</text>
+  <text class="lead" x="136" y="198">read one on-premises SQL Server database.</text>
+</svg>

@@ -1,0 +1,93 @@
+name: Gate decision
+description: The gate allowed or refused a run_query text wrongly, and it is not a security problem.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for a `run_query` text that the gate refused although "What SQL is allowed" in the README
+        allows it, a function or syntax you need that is not on that list, or a text the gate allowed although the
+        README says it is refused.
+
+        **A bypass does not go here.** If the text got a write, a schema change, a read outside the connected
+        database, or a call with no audit line through the server, report it privately through the Security tab
+        ("Report a vulnerability"), as SECURITY.md describes, in the format of the README section
+        "Try to break it".
+        If you are not sure, report it privately.
+
+        **Never paste** a connection string, a password, real data rows, or an audit file from a production system.
+        Replace table, column and literal values you cannot share, and keep the shape of the text that gets the
+        decision.
+  - type: dropdown
+    id: decision
+    attributes:
+      label: Decision
+      options:
+        - Refused, expected allowed
+        - Allowed, expected refused
+    validations:
+      required: true
+  - type: textarea
+    id: sql
+    attributes:
+      label: The run_query text
+      description: The `sql` argument exactly as sent, with names and values you cannot share replaced.
+      render: sql
+    validations:
+      required: true
+  - type: textarea
+    id: answer
+    attributes:
+      label: The tool's answer
+      description: >-
+        The result text, starting with its reason word, for example
+        `DisallowedSyntax: refused by the read-only gate; ...`; for an allowed text, `row_count` and `truncated`
+        from the result. No data rows.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and why
+      description: >-
+        The README section or line that the decision contradicts, or why the function or syntax cannot reach
+        outside the query or expose metadata or security material.
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Server commit or version
+      description: The commit you built from (`git rev-parse HEAD` in your clone).
+    validations:
+      required: true
+  - type: input
+    id: sql-server-version
+    attributes:
+      label: SQL Server version
+      description: >-
+        The first line of `SELECT @@VERSION`, run separately with sqlcmd or another client (the gate refuses
+        `@@VERSION`).
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      options:
+        - Claude Code
+        - Claude Desktop
+        - Other (name it in "What you expected, and why")
+    validations:
+      required: true
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before you submit
+      options:
+        - label: >-
+            The text got no write, schema change, read outside the connected database or call with no audit line.
+          required: true
+        - label: >-
+            This issue holds no connection string, password, real data rows or audit file from a production system.
+          required: true

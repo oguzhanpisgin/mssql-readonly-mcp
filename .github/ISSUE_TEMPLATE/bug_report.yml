@@ -1,0 +1,83 @@
+name: Bug report
+description: The server, a command or a tool does not do what the README says. Not for security problems.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security problems do not go here.** A write, a schema change, a read outside the connected database, or a
+        call with no audit line is a security problem: report it privately through the Security tab ("Report a
+        vulnerability"), as SECURITY.md describes.
+
+        **Never paste** a connection string, a password, real data rows, or an audit file from a production system.
+        Replace names and values you cannot share, and keep the shape of the text that shows the problem.
+
+        Bug reports are read and answered by the maintainer; there is no set time for an answer.
+  - type: input
+    id: commit
+    attributes:
+      label: Server commit or version
+      description: The commit you built from (`git rev-parse HEAD` in your clone).
+    validations:
+      required: true
+  - type: input
+    id: sql-server-version
+    attributes:
+      label: SQL Server version
+      description: >-
+        The first line of `SELECT @@VERSION`, run separately with sqlcmd or another client (the gate refuses
+        `@@VERSION`).
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      options:
+        - Claude Code
+        - Claude Desktop
+        - Other (name it below)
+        - None (a command such as check-login or verify-audit)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system, .NET SDK, and the client if Other
+      description: For example Windows 11, the output of `dotnet --version`, and the client's name and version.
+    validations:
+      required: false
+  - type: textarea
+    id: call
+    attributes:
+      label: The tool call or command
+      description: >-
+        The tool name and its arguments (for `run_query`, the `sql` argument), or the command line you ran.
+        No connection string.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: answer
+    attributes:
+      label: The answer
+      description: >-
+        The tool result text, starting with its reason word (for example `NotSelect`, `SqlError`, `Timeout`), or
+        the exit code and what the command printed (its stdout or stderr line). No data rows.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened, and the README or SECURITY.md section that says so, if there is one.
+    validations:
+      required: true
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before you submit
+      options:
+        - label: >-
+            This issue holds no connection string, password, real data rows or audit file from a production system.
+          required: true

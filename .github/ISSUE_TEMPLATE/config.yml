@@ -1,0 +1,7 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/oguzhanpisgin/mssql-readonly-mcp/security
+    about: >-
+      Do not open a public issue for a security problem. Use "Report a vulnerability" under the Security tab
+      (GitHub private vulnerability reporting), as SECURITY.md describes.

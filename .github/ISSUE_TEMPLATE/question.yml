@@ -1,0 +1,51 @@
+name: Question
+description: How to do something with the server, or whether it does something. Not for security problems.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **A security problem is not a question.** A way to make the server write, change the schema, read outside
+        the connected database, or skip the audit line goes to private reporting through the Security tab ("Report
+        a vulnerability"), as SECURITY.md describes.
+
+        **Never paste** a connection string, a password, real data rows, or an audit file from a production system.
+        Replace names and values you cannot share.
+
+        Questions are read and answered by the maintainer; there is no set time for an answer.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: input
+    id: already-read
+    attributes:
+      label: What you already read
+      description: README or SECURITY.md section names, for example "Five-minute start" or "Result limits".
+    validations:
+      required: false
+  - type: input
+    id: sql-server-version
+    attributes:
+      label: SQL Server version
+      description: >-
+        The first line of `SELECT @@VERSION`, run separately with sqlcmd or another client (the gate refuses
+        `@@VERSION`).
+    validations:
+      required: false
+  - type: input
+    id: client
+    attributes:
+      label: Client
+      description: For example Claude Code or Claude Desktop, with its version.
+    validations:
+      required: false
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before you submit
+      options:
+        - label: >-
+            This issue holds no connection string, password, real data rows or audit file from a production system.
+          required: true
