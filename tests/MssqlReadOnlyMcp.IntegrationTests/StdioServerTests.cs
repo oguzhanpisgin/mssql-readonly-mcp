@@ -810,6 +810,7 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
         private readonly CancellationTokenSource stop = new();
         private readonly List<TcpClient> clients = [];
         private readonly List<Valve> valves = [];
+        private readonly List<Valve> holds = [];
         private readonly TaskCompletionSource stalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task accept = Task.CompletedTask;
         private volatile bool stalling;
@@ -817,6 +818,20 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
 
         /// <summary>Bytes per second SQL Server may send through the proxy; 0 for no limit. Read for every chunk.</summary>
         public int ServerBytesPerSecond { get; set; }
+
+        /// <summary>
+        /// When above 0: a connection that has received this many bytes from SQL Server (counted from its start) is
+        /// frozen in both directions exactly there, as <see cref="FreezeEstablished"/> would, until <see cref="ReleaseAll"/>.
+        /// Read for every chunk; a connection already past the count is not frozen again.
+        /// </summary>
+        public long FreezeAfterServerBytes { get; set; }
+
+        /// <summary>
+        /// When above 0: a connection that has received this many bytes from SQL Server (counted from its start) stops
+        /// forwarding what the client sends (a cancel, a close) until <see cref="ReleaseAll"/>, while SQL Server's data
+        /// still flows. Read for every chunk; a connection already past the count is not held again.
+        /// </summary>
+        public long HoldClientAfterServerBytes { get; set; }
 
         /// <summary>Bytes forwarded from SQL Server to the client so far, on all connections.</summary>
         public long ServerBytes => Interlocked.Read(ref serverBytes);
@@ -840,7 +855,7 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
         {
             lock (valves)
             {
-                foreach (var valve in valves)
+                foreach (var valve in valves.Concat(holds))
                 {
                     valve.Open();
                 }
@@ -931,10 +946,13 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
                 clients.Add(upstream);
             }
 
+            // The valve stops both directions; the hold only what the client sends.
             var valve = new Valve();
+            var hold = new Valve();
             lock (valves)
             {
                 valves.Add(valve);
+                holds.Add(hold);
             }
 
             try
@@ -942,7 +960,7 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
                 await upstream.ConnectAsync(targetHost, targetPort, stop.Token);
                 var down = client.GetStream();
                 var up = upstream.GetStream();
-                await Task.WhenAny(PumpAsync(down, up, valve, fromServer: false), PumpAsync(up, down, valve, fromServer: true));
+                await Task.WhenAny(PumpAsync(down, up, valve, hold, fromServer: false), PumpAsync(up, down, valve, hold, fromServer: true));
             }
             catch (Exception exception) when (exception is OperationCanceledException or IOException or SocketException or ObjectDisposedException)
             {
@@ -953,6 +971,7 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
                 lock (valves)
                 {
                     valves.Remove(valve);
+                    holds.Remove(hold);
                 }
 
                 client.Dispose();
@@ -962,11 +981,13 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
 
         /// <summary>
         /// Copies one direction. The valve is passed before every read and before every write, so a frozen connection
-        /// forwards nothing, not even a chunk read just before the freeze.
+        /// forwards nothing, not even a chunk read just before the freeze. The client's direction also passes the hold
+        /// before every write; SQL Server's direction closes it at <see cref="HoldClientAfterServerBytes"/>.
         /// </summary>
-        private async Task PumpAsync(NetworkStream from, NetworkStream to, Valve valve, bool fromServer)
+        private async Task PumpAsync(NetworkStream from, NetworkStream to, Valve valve, Valve hold, bool fromServer)
         {
             var buffer = new byte[16384];
+            long forwarded = 0;
             try
             {
                 while (true)
@@ -980,11 +1001,42 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
                         return;
                     }
 
-                    await valve.WaitOpenAsync(stop.Token);
-                    await to.WriteAsync(buffer.AsMemory(0, read), stop.Token);
-                    if (fromServer)
+                    // Written in up to two parts: up to the freeze count, then (after the release) the rest.
+                    var offset = 0;
+                    while (offset < read)
                     {
-                        Interlocked.Add(ref serverBytes, read);
+                        await valve.WaitOpenAsync(stop.Token);
+                        if (!fromServer)
+                        {
+                            await hold.WaitOpenAsync(stop.Token);
+                            await valve.WaitOpenAsync(stop.Token);
+                        }
+
+                        var budget = fromServer ? FreezeAfterServerBytes : 0;
+                        var part = read - offset;
+                        var freezeHere = budget > 0 && forwarded < budget && forwarded + part >= budget;
+                        if (freezeHere)
+                        {
+                            part = (int)(budget - forwarded);
+                        }
+
+                        await to.WriteAsync(buffer.AsMemory(offset, part), stop.Token);
+                        offset += part;
+                        forwarded += part;
+                        if (fromServer)
+                        {
+                            Interlocked.Add(ref serverBytes, part);
+                            var holdAt = HoldClientAfterServerBytes;
+                            if (holdAt > 0 && forwarded - part < holdAt && forwarded >= holdAt)
+                            {
+                                hold.Close();
+                            }
+                        }
+
+                        if (freezeHere)
+                        {
+                            valve.Close();
+                        }
                     }
 
                     if (rate > 0)

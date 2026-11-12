@@ -34,6 +34,9 @@ internal sealed class SqlGateway(string connectionString, int lockTimeoutMs)
             Interlocked.Increment(ref connectionsOpened);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
+            // So the close can end the network connection SqlClient may leave open after a break (finding U-1).
+            LeftOpenConnections.Track(connection);
+
             // Checked here rather than left to SqlClient: a call past its deadline sends no further command.
             cancellationToken.ThrowIfCancellationRequested();
 

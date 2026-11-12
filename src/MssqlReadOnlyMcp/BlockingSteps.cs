@@ -30,7 +30,9 @@ internal static class BlockingSteps
     /// Closes the reader, the command and the connection of a call, on a thread of their own. When the call's token was
     /// cancelled (its deadline or the client's cancel reached it), the physical connection is discarded rather than
     /// returned to the pool: <see cref="SqlConnection.ClearPool"/> marks every connection of the pool, also those other
-    /// calls are using, to be closed rather than pooled when it is released.
+    /// calls are using, to be closed rather than pooled when it is released. A network connection SqlClient left open
+    /// when it broke the connection under the reader is found before the close and closed after it
+    /// (<see cref="LeftOpenConnections"/>, finding U-1).
     /// </summary>
     public static Task CloseAsync(
         SqlConnection connection, SqlCommand? command, SqlDataReader? reader, CancellationToken cancellationToken) =>
@@ -43,8 +45,10 @@ internal static class BlockingSteps
             finally
             {
                 command?.Dispose();
+                var leftOpen = LeftOpenConnections.FindLeftOpen(connection);
                 DiscardIfCancelled(connection, cancellationToken);
                 connection.Dispose();
+                LeftOpenConnections.Close(leftOpen);
             }
         });
 

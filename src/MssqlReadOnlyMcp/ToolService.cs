@@ -179,7 +179,10 @@ internal sealed class ToolService(
     /// Other synchronous reads of a value (<c>GetValue</c>, <c>GetSqlDecimal</c>) stay on the body's thread-pool thread
     /// and can wait for the network there when a row is frozen midway. When the call's token was
     /// cancelled before the session ended (its deadline or the client's cancel reached it), the physical connection is
-    /// discarded rather than returned to the pool, whether or not the rollback succeeded.
+    /// discarded rather than returned to the pool, whether or not the rollback succeeded. When SqlClient broke the
+    /// connection under the reader (a cancel not acknowledged in time), the close also ends the network connection
+    /// SqlClient left open (<see cref="LeftOpenConnections"/>, finding U-1), so SQL Server ends the session and its open
+    /// transaction as soon as the network carries the close.
     /// </remarks>
     internal async Task<QueryResult> ExecuteReadAsync(string sql, int rowCap, CancellationToken cancellationToken)
     {
@@ -290,8 +293,10 @@ internal sealed class ToolService(
         }
         finally
         {
+            var leftOpen = LeftOpenConnections.FindLeftOpen(connection);
             BlockingSteps.DiscardIfCancelled(connection, cancellationToken);
             connection.Dispose();
+            LeftOpenConnections.Close(leftOpen);
         }
     }
 

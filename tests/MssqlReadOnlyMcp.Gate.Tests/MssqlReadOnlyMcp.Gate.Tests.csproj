@@ -20,6 +20,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MssqlReadOnlyMcp.Gate\MssqlReadOnlyMcp.Gate.csproj" />
+    <!-- Only for LeftOpenConnectionsGuardTests: the guard of the SqlClient internals the server relies on runs here,
+         without SQL Server, so ci.yml and release.yml (which run these tests) both run it. -->
+    <ProjectReference Include="..\..\src\MssqlReadOnlyMcp\MssqlReadOnlyMcp.csproj" />
   </ItemGroup>
 
 </Project>
