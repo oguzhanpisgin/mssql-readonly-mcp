@@ -16,7 +16,7 @@ at the client library's default (SECURITY.md, "Known limits", "Idle sessions sta
 | `MSSQL_MCP_AUDIT_LOG` | none, required for the server | | Path of the audit file. Created with its folder if missing. Not needed by `check-login`. |
 | `MSSQL_MCP_MAX_ROWS` | 200 | 1 to 5000 | Most rows `run_query` returns. |
 | `MSSQL_MCP_MAX_CHARS` | 40000 | 1000 to 45000 | Most characters in one tool result. Claude Code saves a text result above 50,000 characters to a file instead of showing it, so the ceiling stays below that. |
-| `MSSQL_MCP_TIMEOUT_SECONDS` | 30 | 1 to 300 | Time limit of every call, counted from its start: it covers opening the connection, the session settings and the query with its reading, and is also the command timeout of every command, the startup check included. A call the limit stops is answered and audited as `Timeout`, unless the client cancelled it first; a call that finished reading before the limit keeps its answer. Starting and rolling back the transaction, and cancelling and closing the reader, are synchronous and have no limit of their own; an `xml` value is read synchronously, and the limit is checked between those reads. Connecting is also bounded by the connection string's `Connect Timeout` (default 15 s). |
+| `MSSQL_MCP_TIMEOUT_SECONDS` | 30 | 1 to 300 | Time limit of every call, counted from its start: it covers opening the connection, the session settings and the query with its reading, and is also the command timeout of every command, the startup check included. A call the limit stops is answered and audited as `Timeout`, unless the client cancelled it first; a call that finished reading before the limit keeps its answer. Starting and rolling back the transaction, and cancelling and closing the reader, are synchronous and have no limit of their own; an `xml` value is read synchronously, and the limit is checked between those reads. Connecting is also bounded by the connection string's `Connect Timeout` (default 15 s). How far past the limit calls ended, also on a stalled or slow established connection: ["Commands and exit codes"](#commands-and-exit-codes). With 10,000 views and a 1,024-column table in the database and a limit of 1 s, the server stopped at startup on SQL Server 2019, 2022 and 2025 (`SqlException` number -2 from the startup check; [Security testing](security-testing.md), T-4); the limit at which that starts was not measured. |
 | `MSSQL_MCP_LOCK_TIMEOUT_MS` | 5000 | 0 to 300000 | Value of `SET LOCK_TIMEOUT` for every session. |
 
 ## Commands and exit codes
@@ -67,10 +67,26 @@ widens reading, for example `UNMASK`. The pass line reports the outcome of the c
 At end of input the MCP SDK keeps the server running until every call in flight has ended on its own; each writes
 its audit line, then the audit file closes and the process exits 0. Each call ends at its time limit
 (`MSSQL_MCP_TIMEOUT_SECONDS`) plus the time to finish a synchronous read already under way (part of an `xml` value,
-for example), cancel the command, close the reader and roll back; the time limit does not stop these steps (measured
-on SQL Server 2022: 0.1 to 0.3 s past the limit), and starting the transaction is not stopped by it either (see
-`MSSQL_MCP_TIMEOUT_SECONDS` above). No test holds a call past the drain window (`MSSQL_MCP_TIMEOUT_SECONDS` plus
-10 seconds, below). Tests: `StdioServerTests.cs`
+for example), cancel the command, close the reader and roll back; the time limit does not stop these steps, and
+starting the transaction is not stopped by it either (see `MSSQL_MCP_TIMEOUT_SECONDS` above). How long calls ran
+past the limit was measured, not bounded:
+
+- When the time limit per call was added, on SQL Server 2022 with 30 slow rows and a limit of 2 s: 0.1 to 0.3 s
+  past the limit, in two runs.
+- On a healthy connection in the attack test ([Security testing](security-testing.md), run 3, T-1): up to about
+  5 s past the limit, for example 8.2 to 8.5 s at a limit of 5 s on SQL Server 2025 (3 of 3 runs), and 15.0 s on
+  SQL Server 2022 and 13.3 s on SQL Server 2019 at a limit of 10 s (once each). The cause was not investigated.
+- On a stalled or slow established connection (T-2): a frozen connection ended 5 s past the limit (7.0 s at a
+  limit of 2 s on the three engines), or was held until the network was released (45 s at a limit of 5 s, in 2 of
+  4 measurements; nothing longer was measured); with the link throttled to 20 KB/s, calls ended 21 to 23 s past a
+  limit of 2 s.
+- A call stalled at the connection open ends at its limit (tested below; in run 3, 2.0 s at a limit of 2 s and
+  5.0 s at a limit of 5 s on the three engines).
+
+No test in this repository holds a call past the drain window (`MSSQL_MCP_TIMEOUT_SECONDS` plus 10 seconds, below).
+The attack test did (a frozen connection, 45 s at a limit of 5 s), and each of its server sessions ended with exit 0
+once the network was released; Ctrl+C or a termination signal during such a stall was not tested.
+Tests: `StdioServerTests.cs`
 (`Client_closing_stdin_after_a_call_ends_the_process_with_exit_0_and_no_error_line`,
 `Call_in_flight_when_stdin_closes_writes_its_audit_line_before_the_process_ends`,
 `Call_stalled_at_connection_open_ends_at_the_time_limit_of_the_call_and_is_audited`), `CallLimitTests.cs`
@@ -118,8 +134,10 @@ Name arguments (`schema`, `name_filter`, `table`) that are too long, or that con
 below (invisible ones, and some the server may read differently), are refused as `InvalidArgument` before any
 connection opens, and the name is not recorded. Refused: control, format, line and paragraph separator characters,
 space characters other than U+0020, U+FFFD, private-use, unassigned and noncharacter code points, and unpaired
-surrogates (`ToolService.FindHiddenCharacter`). For example, SQL Server resolves a name with U+200D or U+FEFF to
-the object without that character (`SchemaToolTests.cs`,
+surrogates (`ToolService.FindHiddenCharacter`). No test hands this check an unpaired surrogate: over stdio the MCP
+SDK rejects a call with one in a name argument before the tool runs, audit reason `InvalidRequest`
+([Requests with no audit line](audit-log.md#requests-with-no-audit-line)). For example, SQL Server resolves a name
+with U+200D or U+FEFF to the object without that character (`SchemaToolTests.cs`,
 `Name_with_a_zero_width_joiner_is_refused_although_sql_server_would_resolve_it`,
 `Name_with_a_character_the_gate_refuses_outside_literals_is_an_invalid_argument`). Length limits on tool arguments
 are counted in UTF-16 code units.
@@ -139,7 +157,10 @@ From `src/MssqlReadOnlyMcp/ResultPayload.cs` and `src/MssqlReadOnlyMcp.Gate/Gate
   included (`Long_value_ending_never_passes_the_character_cap`); rows that would pass it are left out and
   `truncated_reason` is `max_chars`.
 - Cells: a text value longer than 2000 characters is cut and ends with `…[cut: value longer than 2000 characters]`.
-  An `xml` value is returned as text and cut the same way (`ValueTypeTests.cs`).
+  An `xml` value is returned as text and cut the same way (`ValueTypeTests.cs`). An unpaired surrogate in a text
+  cell is returned as U+FFFD, with no truncation reason, and a cut that split a surrogate pair left no lone half
+  (measured on SQL Server 2019, 2022 and 2025 in the attack test, [Security testing](security-testing.md), T-5;
+  no test in this repository).
 - Binary values are returned as `<binary N bytes>`.
 - Long values: a text or xml value over 1,048,576 characters, or a binary value over 1,048,576 bytes (shown as
   `<binary over 1048576 bytes>`), ends the result after its row with `truncated_reason` `long_value`. Later cells
@@ -149,8 +170,12 @@ From `src/MssqlReadOnlyMcp/ResultPayload.cs` and `src/MssqlReadOnlyMcp.Gate/Gate
   a 200,000,000-character value; the test asserts that less than 64 MiB was allocated, and the 2026-11-12 run
   reported about 0.3 MB). `ValueTypeTests.cs` (`Binary_values_are_counted_up_to_one_mebibyte_only`) covers binary.
   This read limit holds for text and binary values. An xml value with one very large text node, or a large CLR
-  value, may be read whole into memory by the client library before it is cut or named; not measured here. To see
-  a long value, select `DATALENGTH(col)` or `SUBSTRING(col, 1, n)` instead of the column.
+  value, may be read whole into memory by the client library before it is cut or named. In the attack test
+  ([Security testing](security-testing.md), run 3), one `xml` value with a 20,000,000-character text node took 26
+  to 30 s to read, and the server process peaked at 102 MB working set, against 61 to 62 MB for `SELECT 1` (SQL
+  Server 2019, 2022 and 2025, once each; on 2019 the read ended as `Timeout` at the limit of 30 s). Whether the
+  client library held the value whole was not shown; a large CLR value was not measured. To see a long value,
+  select `DATALENGTH(col)` or `SUBSTRING(col, 1, n)` instead of the column.
 - CLR types are returned as `<unsupported value of type X>` and the call still succeeds. Tested with
   `hierarchyid`; `geometry` and `geography` take the same path in the source but have no test. To read such a column,
   convert it in the query, for example `CAST(Node AS nvarchar(4000))`, which returns `/1/2/` for a `hierarchyid`

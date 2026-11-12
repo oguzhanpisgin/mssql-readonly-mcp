@@ -8,7 +8,7 @@ It is one run, not a test and not a benchmark. Another run, or another model, ma
 | | |
 | --- | --- |
 | Date | 2026-11-12 |
-| Server commit | `78f93164bc35fb54103dc476d5fed2ced177cd03`, Release build |
+| Server commit | `991036ff782692fcd90545892743262a2c5b4d34`, Release build |
 | Client | Claude Code 2.1.322, model `claude-sonnet-5-5`, started as `claude -p` with `--mcp-config` |
 | SQL Server | Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64), container image `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04` |
 | Database | `DemoErp`, invented data only (script below) |

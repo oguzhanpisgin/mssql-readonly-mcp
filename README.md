@@ -35,7 +35,7 @@ Each promise in short; the full text, with the test files that check it, is in [
   has still run and the call returns an error and no data ([full text](docs/promises.md#audit-line-before-data)).
 - **Results are capped by rows, characters and time** ([full text](docs/promises.md#result-caps)).
 - **A query waits a bounded time for locks and loses deadlocks against default-priority sessions.** Its own shared
-  locks can still make a writer wait, up to the time limit of the call
+  locks can still make a writer wait, until the call ends
   ([full text](docs/promises.md#lock-timeout-and-deadlock-priority)).
 
 How each promise is checked, and where. Test counts are kept in one place,
@@ -272,6 +272,7 @@ lines, is in [docs/demo.md](docs/demo.md).
 - [The audit log](docs/audit-log.md): the line format, what a line leaves out, `verify-audit`, and the limits.
 - [Prior art, and when to prefer it](docs/prior-art.md): two related servers, and when to use them instead.
 - [Building and testing](docs/building-and-testing.md): build and test commands, test counts, measured times.
+- [Security testing](docs/security-testing.md): attack tests, scans and code review, results, and what was not tested.
 - [Demo](docs/demo.md): one recorded Claude Code run against an invented database.
 - [Releasing](docs/releasing.md): for the maintainer, how the release workflow builds a draft release and how it is published by hand.
 

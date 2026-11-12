@@ -80,7 +80,9 @@ Each refusal is `DisallowedSyntax` unless named otherwise.
 
 - Before parsing, anywhere in the text (also inside literals and comments): text that is not well-formed UTF-16
   (an unpaired surrogate), and the 66 Unicode noncharacters (U+FDD0 to U+FDEF, and the last two code points of
-  every plane).
+  every plane). The tests show the unpaired-surrogate refusal by calling the gate directly
+  (`RegressionTableTests.cs`); over stdio a `run_query` call with one in `sql` does not reach the gate
+  ([Requests with no audit line](audit-log.md#requests-with-no-audit-line)).
 - ODBC escape tokens outside literals, quoted names and comments: `{fn ...}`, `{d ...}`, `{oj ...}` and any other
   brace, and `--(*`. So `LIKE 'a\_b' {escape '\'}` is refused, while `LIKE 'a\_b' ESCAPE '\'` is allowed. A brace
   inside a string literal or a comment is allowed.

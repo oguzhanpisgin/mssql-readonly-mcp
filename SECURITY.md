@@ -87,6 +87,9 @@ that question over-reports, the limits of the class rules, and the platform note
 
 ## What each test class proves
 
+The attack tests, scans and code security review run before the first release, their results and what they did not
+cover are in [docs/security-testing.md](docs/security-testing.md).
+
 Gate (`tests/MssqlReadOnlyMcp.Gate.Tests`, no database needed):
 
 - `RegressionTableTests`: each row is a SQL text, allowed or refused, with the expected reason (71 allowed and 247
@@ -154,9 +157,9 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
 - `AuditTests`: one audit line per call plus one startup line, no data when the audit file fails, a `TooLong` text
   is not recorded, and shutdown waits for a call in flight.
 - `CapsTests`: row cap, character cap, cell cut, time limit, lock timeout.
-- `CallLimitTests`: time limit per call (rows that arrive slowly end at it as `Timeout`; a client cancel stays
-  `Cancelled`); a row that cannot fit the character cap is not held whole in memory, but the cells read and the rest
-  of the row still cross the network.
+- `CallLimitTests`: time limit per call (rows that arrive slowly end as `Timeout` less than 3 s after it; a client
+  cancel stays `Cancelled`); a row that cannot fit the character cap is not held whole in memory, but the cells
+  read and the rest of the row still cross the network.
 - `ValueTypeTests`: xml as text with the cell cut, `hierarchyid` as a placeholder, binary counting up to 1 MiB and
   `long_value` past it, the character cap with a `long_value` ending, `QUOTED_IDENTIFIER ON` and `NOCOUNT OFF`, the
   reader as deadlock victim; text sent past the gate as a `db_datawriter` member fails as `RowsChanged` or
@@ -211,7 +214,7 @@ reads each as one statement with the parser's column name.
 | --- | --- | --- | --- |
 | Line comment end | ends only at CR or LF | ends only at CR or LF | refuses a line comment holding other controls or U+2028, U+2029 |
 | U+0000 outside literals | whitespace | whitespace | refused |
-| Lone surrogate | arrives as U+FFFD | reads the surrogate | text refused before parsing |
+| Lone surrogate | arrives as U+FFFD | reads the surrogate | text refused before parsing (the gate called directly, `RegressionTableTests`); over stdio the MCP SDK rejects such a `run_query` call before the gate: audit reason `InvalidRequest`, `sql` null (`docs/audit-log.md`) |
 | `GO` on its own line | reads it as a column alias, runs both statements | batch separator | refused (`NotSingleBatch`) |
 | U+200D and U+FEFF in names | identifier characters; `a<U+200D>b`, `[a<U+200D>b]` and the same with U+FEFF resolve to the column `ab` | identifier characters (U+200B, by contrast, is whitespace to it) | refused, also inside bracketed and quoted names |
 | Look-alike quotes (U+FF07, U+2019) and full-width parentheses | syntax error | identifier characters | allowed; the server refuses it, nothing runs |
@@ -220,7 +223,8 @@ reads each as one statement with the parser's column name.
 Limits of this measurement:
 
 - Only the default collation and the default compatibility level of each image were measured.
-- Whether Microsoft.Data.SqlClient or the server replaces a lone surrogate with U+FFFD was not isolated.
+- Whether Microsoft.Data.SqlClient or the server replaces a lone surrogate with U+FFFD was not isolated. Over stdio
+  such text reaches neither: the MCP SDK rejects the request first (measured on SQL Server 2019, 2022 and 2025).
 - The gate's check for unassigned code points follows the Unicode tables of the .NET runtime in use.
 - SQL Server 2025 runs the permanent test but was not part of the original measurement.
 
@@ -259,22 +263,30 @@ Limits of this measurement:
   spelled name to the same object; in a `run_query` text, full-width letters and some other characters were not
   measured (a `describe_table` name with a full-width letter: `docs/reference.md`, "Tools"). `sql` and
   `sql_sha256` are the authoritative record. A `TooLong` text and a refused name argument are not recorded.
-- **CPU, memory and tempdb use are bounded by the time limit of the call.** It counts from the start of the call
-  and covers opening the connection, the session settings, and the query and its reading; each command also keeps it
-  as its command timeout. When it passes, a synchronous read already under way (part of an `xml` value, for example)
-  finishes, then the command is cancelled, the reader closed and, for `run_query`, the transaction rolled back; these
-  steps and the transaction start are synchronous and the time limit does not stop them (measured on SQL Server 2022:
-  0.1 to 0.3 s past the limit). A heavy join or sort can load the server until then.
+- **CPU, memory and tempdb use are limited by the time limit of the call, which is not a hard bound.** It counts
+  from the start of the call and covers opening the connection, the session settings, and the query and its
+  reading; each command also keeps it as its command timeout. When it passes, a synchronous read already under way
+  (part of an `xml` value, for example) finishes, then the command is cancelled, the reader closed and, for
+  `run_query`, the transaction rolled back; these steps and the transaction start are synchronous and the time
+  limit does not stop them. Measured: 0.1 to 0.3 s past
+  the limit for 30 slow rows on SQL Server 2022 when the limit was added; up to about 5 s past it on a healthy
+  connection in the attack test (8.2 to 8.5 s at a limit of 5 s on SQL Server 2025, 3 of 3 runs); on a frozen or
+  throttled established connection, 5 s past it, until the network was released (45 s at a limit of 5 s, 2 of 4
+  measurements), or 21 to 23 s past a limit of 2 s at 20 KB/s (`docs/reference.md`, "Commands and exit codes";
+  `docs/security-testing.md`, T-1 and T-2). A heavy join or sort can load the server until then.
   The server does not limit how many calls run at once. The server-side answer is Resource Governor: put the login
   in a workload group with its own limits (check that your SQL Server edition offers it).
 - **Long values still cross the network.** A value that ends the result as `long_value` is never held whole, but
   SQL Server still sends it in full (`docs/reference.md`, "Result limits"; `LargeValueTests`). That read limit holds
   for text and binary values. An xml value with one very large text node, or a large CLR value (`geography`,
-  `geometry`, `hierarchyid`), may be read whole into memory by the client library before it is cut or named. Not
-  measured here.
+  `geometry`, `hierarchyid`), may be read whole into memory by the client library before it is cut or named. In the
+  attack test, one `xml` value with a 20,000,000-character text node took 26 to 30 s to read, and the server process
+  peaked at 102 MB working set, against 61 to 62 MB for `SELECT 1` (SQL Server 2019, 2022 and 2025, once each; on
+  2019 the read ended as `Timeout` at the limit of 30 s; `docs/security-testing.md`, run 3). Whether the client
+  library held the value whole was not shown; a large CLR value was not measured.
 - **Locks.** The session waits at most the lock timeout and runs at low deadlock priority; under READ COMMITTED its
-  own shared locks can still make a writer wait, up to the time limit of the call (`docs/promises.md`, "What it
-  promises").
+  own shared locks can still make a writer wait, until the call ends (`docs/promises.md`, "What it promises"). The
+  time limit of the call is not a hard bound ("CPU, memory and tempdb use" above).
 - **Syntax newer than the server.** The gate parses with `TSql170Parser` (the package's parser for version 17.0;
   the newer `TSql180Parser` is not used). On SQL Server 2019, syntax added in 2022 passes the gate and fails on the
   server with a syntax error, or with error 195 for `DATETRUNC`, `GREATEST` and `LEAST` (`DifferentialTests`,
