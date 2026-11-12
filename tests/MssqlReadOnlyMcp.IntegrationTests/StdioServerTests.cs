@@ -373,6 +373,55 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
             stderr.Where(l => l.StartsWith("warn: ", StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// Requests whose parameters the SDK cannot deserialize, so the call-tool filter never runs (security finding X-1):
+    /// a lone surrogate (the JSON escape <c>\ud800</c>, sent as written) in an argument, arguments that are not an
+    /// object, no tool name. Each still gets exactly one audit line, on disk before its answer arrives.
+    /// </summary>
+    [Theory]
+    [InlineData("describe_table", """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"describe_table","arguments":{"table":"dbo.Customers\ud800"}}}""", "InvalidOperationException")]
+    [InlineData("run_query", """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_query","arguments":{"sql":"SELECT N'\ud800' AS v"}}}""", "InvalidOperationException")]
+    [InlineData("run_query", """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_query","arguments":"SELECT 1"}}""", "JsonException")]
+    [InlineData("unknown", """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"arguments":{"sql":"SELECT 1"}}}""", "JsonException")]
+    [InlineData("list_tables", """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_tables","arguments":{"schema":"dbo\ud800"}}}""", "InvalidOperationException")]
+    public async Task Call_whose_parameters_the_sdk_cannot_read_is_audited_before_its_error_answer(string tool, string request, string error)
+    {
+        var auditPath = fixture.NewAuditPath();
+        await using var server = RawStdioServer.Start(ServerDll, fixture.ReaderConnectionString, auditPath);
+        await server.InitializeAsync();
+
+        var response = await server.SendLineAsync(2, request);
+        var linesAtAnswer = TestText.AuditLines(auditPath);
+        var run = await server.CloseInputAndWaitAsync(TimeSpan.FromSeconds(60));
+
+        // The answer stays the SDK's generic JSON-RPC error: no detail, no data.
+        Assert.False(response.TryGetProperty("result", out _), response.GetRawText());
+        var answer = response.GetProperty("error");
+        Assert.Equal(-32603, answer.GetProperty("code").GetInt32());
+        Assert.Equal("An error occurred.", answer.GetProperty("message").GetString());
+        Assert.False(answer.TryGetProperty("data", out _), response.GetRawText());
+
+        Assert.Equal(["startup:allowed:Allowed", $"{tool}:error:InvalidRequest"], linesAtAnswer.Select(Key));
+        var line = linesAtAnswer[1];
+        Assert.Equal(JsonValueKind.Null, line.GetProperty("sql").ValueKind);
+        Assert.Equal(JsonValueKind.Null, line.GetProperty("sql_sha256").ValueKind);
+        Assert.Empty(line.GetProperty("tables").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, line.GetProperty("rows").ValueKind);
+        Assert.False(line.GetProperty("truncated").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, line.GetProperty("result_sha256").ValueKind);
+        Assert.Equal(2, TestText.AuditLines(auditPath).Count);
+
+        var verify = await RunServerAsync(["verify-audit", auditPath], null, null);
+        Assert.True(verify.ExitCode == 0, string.Join(" | ", verify.Stdout.Concat(verify.Stderr)));
+
+        // The usual two stderr lines of a call rejected before a tool ran: the tool and the exception type only.
+        Assert.True(run.ExitCode == 0, $"exit {run.ExitCode}; stderr: {string.Join(" | ", run.Stderr)}");
+        Assert.True(run.Stderr.Length == 2, string.Join(" | ", run.Stderr));
+        Assert.Matches($"^info: MssqlReadOnlyMcp\\.ToolService\\[0\\] {tool} error InvalidRequest [0-9]+ ms$", run.Stderr[0]);
+        Assert.Equal($"warn: MssqlReadOnlyMcp.ToolService[0] {tool}: rejected before the tool ran ({error})", run.Stderr[1]);
+        AssertNoSecrets(new ProcessRun(run.ExitCode, run.Stdout, run.Stderr), auditPath);
+    }
+
     [Fact]
     public async Task Setup_script_creates_a_login_that_passes_check_login_and_runs_twice()
     {
@@ -692,6 +741,14 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
         {
             process.StandardInput.WriteLine(JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters }));
             process.StandardInput.Flush();
+        }
+
+        /// <summary>Sends one line exactly as given (a request no serializer would write) and reads the answer to <paramref name="id"/>.</summary>
+        public async Task<JsonElement> SendLineAsync(int id, string line)
+        {
+            await process.StandardInput.WriteLineAsync(line);
+            await process.StandardInput.FlushAsync();
+            return await ReadResponseAsync(id);
         }
 
         public async Task<(int ExitCode, string[] Stdout, string[] Stderr)> CloseInputAndWaitAsync(TimeSpan timeout)

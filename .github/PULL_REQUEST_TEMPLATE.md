@@ -12,7 +12,7 @@ change (docs or comments only), write "none: no behaviour change". -->
 
 ## Test run
 
-<!-- Counts from your own run, from the repository root (README, "Building and testing"). -->
+<!-- Counts from your own run, from the repository root (docs/building-and-testing.md). -->
 
 - Gate tests: passed / failed / total
 - Audit tests: passed / failed / total
@@ -21,5 +21,5 @@ change (docs or comments only), write "none: no behaviour change". -->
 
 ## Docs
 
-<!-- When behaviour changed: the README.md and SECURITY.md lines you changed, and the test each changed claim
+<!-- When behaviour changed: the README.md, docs/ and SECURITY.md lines you changed, and the test each changed claim
 names. Counts in the docs (regression table rows, test counts) included. Write "no behaviour change" otherwise. -->

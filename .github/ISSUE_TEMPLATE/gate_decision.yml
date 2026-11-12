@@ -4,9 +4,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use this form for a `run_query` text that the gate refused although "What SQL is allowed" in the README
-        allows it, a function or syntax you need that is not on that list, or a text the gate allowed although the
-        README says it is refused.
+        Use this form for a `run_query` text that the gate refused although "What SQL is allowed" in
+        docs/sql-gate.md allows it, a function or syntax you need that is not on that list, or a text the gate
+        allowed although that page says it is refused.
 
         **A bypass does not go here.** If the text got a write, a schema change, a read outside the connected
         database, or a call with no audit line through the server, report it privately through the Security tab
@@ -50,7 +50,7 @@ body:
     attributes:
       label: What you expected, and why
       description: >-
-        The README section or line that the decision contradicts, or why the function or syntax cannot reach
+        The README or docs/ section or line that the decision contradicts, or why the function or syntax cannot reach
         outside the query or expose metadata or security material.
     validations:
       required: true

@@ -679,18 +679,24 @@ public sealed class PermissionCheckTests(SqlServerFixture fixture)
     }
 
     [Fact]
-    public async Task Allowed_right_public_holds_with_grant_option_is_named_with_it()
+    public async Task Member_of_a_role_inside_the_role_that_owns_a_route_is_named_for_it()
     {
-        // public holds SELECT and INSERT on the table WITH GRANT OPTION; the login has no grant of its own.
-        var report = await CheckAsync(
-            fixture.ExtraConnectionString(SqlServerFixture.PublicGrantReaderLogin, SqlServerFixture.PublicGrantDatabase));
+        // The login's user is in one role, that role is a member of a second role, and the second role owns the route.
+        var report = await CheckAsync(fixture.ExtraConnectionString(SqlServerFixture.NestedRouteOwnerLogin));
 
-        Assert.Contains("SELECT WITH GRANT OPTION on object [dbo].[PublicNotes]", report.Findings.Select(f => f.ToString()));
+        Assert.Equal(
+            [
+                "ALTER on route [NestedOwnedRoute]", "CONTROL on route [NestedOwnedRoute]",
+                "TAKE OWNERSHIP on route [NestedOwnedRoute]",
+            ],
+            report.Findings.Select(f => f.ToString()));
     }
 
     [Fact]
-    public async Task Refused_right_public_holds_with_grant_option_keeps_its_one_finding()
+    public async Task Right_public_holds_with_grant_option_is_named_once_allowed_or_refused()
     {
+        // public holds SELECT (allowed) and INSERT (refused) on the table WITH GRANT OPTION; the login has no grant
+        // of its own. The allowed right is named with the option, the refused one keeps its one finding.
         var report = await CheckAsync(
             fixture.ExtraConnectionString(SqlServerFixture.PublicGrantReaderLogin, SqlServerFixture.PublicGrantDatabase));
 

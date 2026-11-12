@@ -5,7 +5,7 @@
 The attacker is the assistant: a model that was prompt-injected (for example by text stored in a table it read) or
 that simply makes a mistake. It can call the three tools with any arguments, as often as it likes. The goal is that
 it cannot change the database, given the gate (one plain SELECT), the transaction that is always rolled back, and a
-login that passes the permission check (see the README section "What `check-login` refuses" for the classes it
+login that passes the permission check (see "What `check-login` refuses" in `docs/login-check.md` for the classes it
 inspects and those it does not); that it cannot read outside the connected database; and that it cannot get data
 back from a call before that call's audit line is written. The line is appended after the SQL has run: when it
 cannot be written, the query has still run, and the call fails with no data. A call still running when the server
@@ -43,33 +43,33 @@ The check is an allowlist over the login's effective permissions at server and d
 scope on every object of the asked types in the connected database's `sys.objects` (those marked as shipped, such
 as `cdc` tables or objects marked with `sp_MS_marksystemobject`, included), on schemas, roles and application
 roles, and on user-defined server roles at server scope, for four rights on every Service Broker queue (the
-built-in ones included), and for every right but a few allowed ones on the sixteen other securable classes the
-README lists as checked (the built-in assembly `Microsoft.SqlServer.Types` included; an owner holds `CONTROL`, so
-this question finds it). As a backstop, any right granted to the login, to a role or group it is in, or to `public`
-on any securable of the connected database or the server, whatever its class, is a finding unless it is `CONNECT`
-or `VIEW DEFINITION`, on a database securable also `SELECT`, `REFERENCES`, `VIEW CHANGE TRACKING`, `UNMASK` or
-`EXECUTE` on a table type, an alias type or an XML schema collection, or, in `master`, `public`'s `EXECUTE` on a
-system object. An allowed right held `WITH GRANT OPTION` is a finding too, `<right> WITH GRANT OPTION`, also for
-the rights allowed on the database and the server. A NULL answer is a finding, never a pass
+built-in ones included), and for every right but a few allowed ones on the sixteen other securable classes that
+`docs/login-check.md` lists as checked (the built-in assembly `Microsoft.SqlServer.Types` included; an owner holds
+`CONTROL`, so this question finds it). As a backstop, any right granted to the login, to a role or group it is in, or
+to `public` on any securable of the connected database or the server, whatever its class, is a finding unless it is
+`CONNECT` or `VIEW DEFINITION`, on a database securable also `SELECT`, `REFERENCES`, `VIEW CHANGE TRACKING`, `UNMASK`
+or `EXECUTE` on a table type, an alias type or an XML schema collection, or, in `master`, `public`'s `EXECUTE` on a
+system object. An allowed right held `WITH GRANT OPTION` is a finding too, `<right> WITH GRANT OPTION`, also for the
+rights allowed on the database and the server. A NULL answer is a finding, never a pass
 (`src/MssqlReadOnlyMcp/PermissionCheck.cs`).
 Connected to `msdb`, a login with a user there is refused (measured for a reader with `SELECT` on schema `dbo`;
 every user is in `public`), because `public` may execute shipped procedures and functions there (14 on SQL Server
-2019, 15 on 2022 and 2025; the README lists them); a reader with a user and `SELECT` on schema `dbo` passes in
-`master` and in a new user database. It inspects the server and the connection's database only. `ALTER` on a user
+2019, 15 on 2022 and 2025; `docs/login-check.md` lists them); a reader with a user and `SELECT` on schema `dbo` passes
+in `master` and in a new user database. It inspects the server and the connection's database only. `ALTER` on a user
 or a login, `ALTER` on an external model (SQL Server 2025) and `EXECUTE` on a system extended procedure in `master`
-are found only by the backstop. `ALTER` on an endpoint, a route, a message type, a remote service binding, a
-search property list or a database scoped credential and `TAKE OWNERSHIP` on a contract or a full-text stoplist
-are found by the class question and by the backstop, and an owner of any of those eight classes by the class
-question, also when a role the login is in is the owner (measured for a message type, a full-text stoplist and an
-endpoint; no act was run through a role). With each right, and as each owner, the login ran a statement that the
-plain reader could not run (measured; the README names each statement and what it changed, where a change was
-shown). With an allowed right held `WITH GRANT OPTION` the login granted it to another
-principal, and the plain reader could not (measured at schema, object, column, database and server scope).
+are found only by the backstop. `ALTER` on an endpoint, a route, a message type, a remote service binding, a search
+property list or a database scoped credential and `TAKE OWNERSHIP` on a contract or a full-text stoplist are found by
+the class question and by the backstop, and an owner of any of those eight classes by the class question, also when a
+role the login is in is the owner (measured for a message type, a full-text stoplist and an endpoint; no act was run
+through a role). With each right, and as each owner, the login ran a statement that the plain reader could not run
+(measured; `docs/login-check.md` names each statement and what it changed, where a change was shown). With an allowed
+right held `WITH GRANT OPTION` the login granted it to another principal, and the plain reader could not (measured at
+schema, object, column, database and server scope).
 A reader with `SELECT` on a schema that holds a temporal or ledger history table is refused:
 on SQL Server 2019 it could insert into the temporal history table through `OUTPUT ... INTO` (measured); on 2022
-and 2025 no insert that was tried ran. The README explains why and what to grant instead. The full lists of what
-it refuses, what it allows on each class and why, and what it does not inspect, why synonyms are asked and where
-that question over-reports, the limits of the class rules, and the platform note are in the README section
+and 2025 no insert that was tried ran. `docs/login-check.md` explains why and what to grant instead. The full lists of
+what it refuses, what it allows on each class and why, and what it does not inspect, why synonyms are asked and where
+that question over-reports, the limits of the class rules, and the platform note are in `docs/login-check.md`,
 "What `check-login` refuses"; read them before you rely on a pass.
 
 ## What each test class proves
@@ -120,7 +120,7 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
   UPDATE and column UPDATE grants, `db_datawriter`, `db_owner`, `sa`, IMPERSONATE, ALTER ANY ROLE, `securityadmin`,
   EXECUTE on a procedure, UPDATE on a sequence, `db_denydatawriter`, ALTER TRACE, BACKUP DATABASE, UNMASK, TAKE
   OWNERSHIP on a role and UPDATE on a synonym (`UPDATE on synonym [dbo].[CustomerAlias]`) are refused, each named by
-  its finding; one or more logins per class covered in the README section "What `check-login` refuses" get their
+  its finding; one or more logins per class covered in "What `check-login` refuses" (`docs/login-check.md`) get their
   exact findings (a built-in queue and the built-in assembly included), a login holding only rights the check
   allows on those classes passes, and at least one act for each refused login, except the two that hold `SEND`
   through a role, shows its right at work while the reader cannot; rights on a procedure and a table marked with
@@ -128,16 +128,15 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
   an application role are found exactly and shown at work; the rights found through the grant rows (named under
   "What the login check covers", a route also through a role and through a role in a role) get their exact findings
   and an act each while the reader cannot (for `xp_regwrite` the test shows only a different outcome: error 0 for
-  the grantee, 229 for the reader; see the README); an owner of each of the eight classes named there, and a login
-  holding an allowed right `WITH GRANT OPTION` at schema, object, column, database and server scope, directly and
-  through a role, get their exact findings and an act each while the reader cannot; a member of a role that owns a
-  schema, a message type, a full-text stoplist, an endpoint or a server role, and a login in a database where
-  `public` holds `SELECT` and `INSERT` `WITH GRANT OPTION`, get their exact findings (no act); a login that sees other
+  the grantee, 229 for the reader; see `docs/login-check.md`); an owner of each of the eight classes named there, and
+  a login holding an allowed right `WITH GRANT OPTION` at schema, object, column, database and server scope, directly
+  and through a role, get their exact findings and an act each while the reader cannot; a member of a role that owns a
+  schema, a message type, a full-text stoplist, an endpoint or a server role, and a login in a database where `public`
+  holds `SELECT` and `INSERT` `WITH GRANT OPTION`, get their exact findings (no act); a login that sees other
   principals' grants on a user, an application role and a login passes; a plain reader passes in `master` and in a
-  database with
-  change data capture enabled at database level (`sys.sp_cdc_enable_db`, no table enabled for capture; the README
-  gives a measurement with captured tables), and is refused in `msdb` with the exact list `public` may execute
-  there; how a NULL answer's finding is printed (the NULL path in the query has no test).
+  database with change data capture enabled at database level (`sys.sp_cdc_enable_db`, no table enabled for capture;
+  `docs/login-check.md` gives a measurement with captured tables), and is refused in `msdb` with the exact list
+  `public` may execute there; how a NULL answer's finding is printed (the NULL path in the query has no test).
 - `AuditTests`: one audit line per call plus one startup line, no data when the audit file fails, a `TooLong` text
   is not recorded, and shutdown waits for a call in flight.
 - `CapsTests`: row cap, character cap, cell cut, command timeout, lock timeout.
@@ -206,7 +205,7 @@ Limits of this measurement:
   an external model (SQL Server 2025), an availability group, an external language or an external table is not
   found; a
   password-protected symmetric key can be opened with `REFERENCES` or `VIEW DEFINITION` plus its password, which
-  the check allows. The lists and the other limits of the check are in the README section
+  the check allows. The lists and the other limits of the check are in `docs/login-check.md`,
   "What `check-login` refuses".
 - **Synonyms and views can point elsewhere.** The gate sees a one-part or two-part name. A synonym can point to
   another database or, through a linked server, to another server; a view can read tables the login has no SELECT
@@ -232,11 +231,12 @@ Limits of this measurement:
   Resource Governor: put the login in a workload group with its own limits (check that your SQL Server edition
   offers it).
 - **Long values still cross the network.** A value that ends the result as `long_value` is never held whole, but
-  SQL Server still sends it in full (README, "Result limits"; `LargeValueTests`). That read limit holds for text and
-  binary values. An xml value with one very large text node, or a large CLR value (`geography`, `geometry`,
-  `hierarchyid`), may be read whole into memory by the client library before it is cut or named. Not measured here.
+  SQL Server still sends it in full (`docs/reference.md`, "Result limits"; `LargeValueTests`). That read limit holds
+  for text and binary values. An xml value with one very large text node, or a large CLR value (`geography`,
+  `geometry`, `hierarchyid`), may be read whole into memory by the client library before it is cut or named. Not
+  measured here.
 - **Locks.** The session waits at most the lock timeout and runs at low deadlock priority; under READ COMMITTED its
-  own shared locks can still make a writer wait, up to the command timeout (README, "What it promises").
+  own shared locks can still make a writer wait, up to the command timeout (`docs/promises.md`, "What it promises").
 - **Syntax newer than the server.** The gate parses with `TSql170Parser` (the package's parser for version 17.0;
   the newer `TSql180Parser` is not used). On SQL Server 2019, syntax added in 2022 passes the gate and fails on the
   server with a syntax error, or with error 195 for `DATETRUNC`, `GREATEST` and `LEAST` (`DifferentialTests`,
@@ -245,7 +245,7 @@ Limits of this measurement:
   the newest lines or a full rewrite, unless the last hash is copied somewhere the writer cannot write. The hash
   has no key. The SQL text, literals included, is stored in plain text. Timestamps come from the host clock. On
   Linux the file lock is advisory, and a crash just after the file is created can lose it. The full text is in the
-  `AuditLog` class documentation and in the README.
+  `AuditLog` class documentation and in `docs/audit-log.md`.
 - **Data leaves the building.** Rows, table and column names, and SQL Server error text (for classes 11 to 16,
   under any reason, the server's message, which can name objects or quote a value) go to the AI vendor. Read-only
   does not change that. Choose what the login may read with `scripts/create-readonly-login.sql`.

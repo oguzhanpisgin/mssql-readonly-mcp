@@ -41,7 +41,8 @@ public sealed class LargeValueTests(SqlServerFixture fixture, ITestOutputHelper 
         // (c) The stated limit: the command is cancelled before the reader moves on, yet closing the reader still
         // reads the rest of the value up to SQL Server's acknowledgement of the cancel, and the client library offers
         // no way to drop the connection instead. The whole value crosses the network (it is discarded as it arrives).
-        // If this assertion ever fails, the limit is gone and the README and SECURITY.md sentence must change.
+        // If this assertion ever fails, the limit is gone and the docs/reference.md and SECURITY.md sentence must
+        // change.
         Assert.True(received >= ValueChars, $"{received} bytes received for a {ValueChars}-character value");
 
         // (b) The value was never held whole.

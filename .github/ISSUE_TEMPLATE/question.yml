@@ -22,7 +22,7 @@ body:
     id: already-read
     attributes:
       label: What you already read
-      description: README or SECURITY.md section names, for example "Five-minute start" or "Result limits".
+      description: README, docs/ or SECURITY.md section names, for example "Five-minute start" or "Result limits".
     validations:
       required: false
   - type: input

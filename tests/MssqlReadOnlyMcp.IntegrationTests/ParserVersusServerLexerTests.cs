@@ -96,8 +96,8 @@ public sealed class ParserVersusServerLexerTests(SqlServerFixture fixture, ITest
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
         Assert.Equal(before, await fixture.FingerprintAsync());
 
-        // The README quotes these numbers; this test is their source. They change only when the gate or the case list
-        // changes, and they are the same on SQL Server 2019, 2022 and 2025.
+        // docs/promises.md quotes these numbers; this test is their source. They change only when the gate or the
+        // case list changes, and they are the same on SQL Server 2019, 2022 and 2025.
         Assert.Equal(
             new SortedDictionary<string, int>(StringComparer.Ordinal)
             {

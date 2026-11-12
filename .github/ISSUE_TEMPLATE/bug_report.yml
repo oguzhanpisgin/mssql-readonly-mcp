@@ -1,5 +1,5 @@
 name: Bug report
-description: The server, a command or a tool does not do what the README says. Not for security problems.
+description: The server, a command or a tool does not do what the README or docs/ say. Not for security problems.
 body:
   - type: markdown
     attributes:
@@ -70,7 +70,8 @@ body:
     id: expected
     attributes:
       label: What you expected
-      description: What should have happened, and the README or SECURITY.md section that says so, if there is one.
+      description: >-
+        What should have happened, and the README, docs/ or SECURITY.md section that says so, if there is one.
     validations:
       required: true
   - type: checkboxes

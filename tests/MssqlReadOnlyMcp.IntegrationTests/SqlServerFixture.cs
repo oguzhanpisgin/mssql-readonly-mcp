@@ -411,6 +411,15 @@ public sealed class SqlServerFixture : IAsyncLifetime
     public const string ServerRoleOwnersRole = "mcp_server_role_owners";
 
     /// <summary>
+    /// SELECT on schema dbo; its user is in <see cref="RouteOwnersInnerRole"/>, a member of
+    /// <see cref="RouteOwnersOuterRole"/>, which owns <see cref="NestedOwnedRoute"/>.
+    /// </summary>
+    public const string NestedRouteOwnerLogin = "mcp_nested_route_owner";
+    public const string NestedOwnedRoute = "NestedOwnedRoute";
+    public const string RouteOwnersInnerRole = "route_owners_inner";
+    public const string RouteOwnersOuterRole = "route_owners_outer";
+
+    /// <summary>
     /// In <see cref="PublicGrantDatabase"/>: <c>public</c> holds SELECT (allowed) and INSERT (refused) on
     /// <see cref="PublicNotesTable"/> WITH GRANT OPTION; this login has a user there and no grant of its own.
     /// </summary>
@@ -439,7 +448,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
         RoleSchemaGrantorLogin, RoleObjectGrantorLogin, RoleColumnGrantorLogin, RoleDatabaseGrantorLogin,
         RoleServerGrantorLogin, DatabaseSelectGrantorLogin, InsertGrantorLogin, NestedRouteAltererLogin,
         RoleSchemaOwnerLogin, RoleMessageTypeOwnerLogin, RoleStoplistOwnerLogin, RoleEndpointOwnerLogin,
-        RoleServerRoleOwnerLogin, PublicGrantReaderLogin,
+        RoleServerRoleOwnerLogin, PublicGrantReaderLogin, NestedRouteOwnerLogin,
     ];
 
     /// <summary>Every seeded user table, with the database it lives in.</summary>
@@ -998,9 +1007,10 @@ public sealed class SqlServerFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Securables owned by a role the login is in (database and server), and <c>public</c> holding rights
-    /// WITH GRANT OPTION in a database of its own, so that those grants reach no other test's login. The endpoint
-    /// is a stopped database mirroring endpoint: an instance takes one Service Broker endpoint only (error 7807).
+    /// Securables owned by a role the login is in (database and server, and a route owned through a nested role),
+    /// and <c>public</c> holding rights WITH GRANT OPTION in a database of its own, so that those grants reach no
+    /// other test's login. The endpoint is a stopped database mirroring endpoint: an instance takes one Service
+    /// Broker endpoint only (error 7807).
     /// </summary>
     private IEnumerable<(string Database, string Sql)> RoleOwnerAndPublicGrantSeedBatches()
     {
@@ -1020,7 +1030,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
         foreach (var login in new[]
         {
             RoleSchemaOwnerLogin, RoleMessageTypeOwnerLogin, RoleStoplistOwnerLogin, RoleEndpointOwnerLogin,
-            RoleServerRoleOwnerLogin,
+            RoleServerRoleOwnerLogin, NestedRouteOwnerLogin,
         })
         {
             users.Append($"CREATE USER [{login}] FOR LOGIN [{login}];\nGRANT SELECT ON SCHEMA::dbo TO [{login}];\n");
@@ -1035,6 +1045,11 @@ public sealed class SqlServerFixture : IAsyncLifetime
             CREATE MESSAGE TYPE [{RoleOwnedMessageType}] AUTHORIZATION [{MessageTypeOwnersRole}] VALIDATION = NONE;
             CREATE ROLE [{StoplistOwnersRole}];
             ALTER ROLE [{StoplistOwnersRole}] ADD MEMBER [{RoleStoplistOwnerLogin}];
+            CREATE ROLE [{RouteOwnersInnerRole}];
+            CREATE ROLE [{RouteOwnersOuterRole}];
+            ALTER ROLE [{RouteOwnersInnerRole}] ADD MEMBER [{NestedRouteOwnerLogin}];
+            ALTER ROLE [{RouteOwnersOuterRole}] ADD MEMBER [{RouteOwnersInnerRole}];
+            CREATE ROUTE [{NestedOwnedRoute}] AUTHORIZATION [{RouteOwnersOuterRole}] WITH ADDRESS = N'TCP://10.0.0.3:4022';
             """);
         yield return (Database, $"CREATE SCHEMA [{RoleOwnedSchema}] AUTHORIZATION [{SchemaOwnersRole}];");
         yield return (Database, $"CREATE FULLTEXT STOPLIST [{RoleOwnedStoplist}] AUTHORIZATION [{StoplistOwnersRole}];");

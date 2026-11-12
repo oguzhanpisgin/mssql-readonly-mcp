@@ -154,6 +154,7 @@ static async Task<int> RunServerAsync()
                 Version = ServerVersion.Current,
             })
             .WithStdioServerTransport()
+            .WithMessageFilters(filters => filters.AddIncomingFilter(CallToolAuditFilter.WrapMessages))
             .WithRequestFilters(filters => filters.AddCallToolFilter(CallToolAuditFilter.Wrap))
             .WithTools<McpTools>();
 
