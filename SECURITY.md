@@ -7,9 +7,15 @@ that simply makes a mistake. It can call the three tools with any arguments, as 
 it cannot change the database, given the gate (one plain SELECT), the transaction that is always rolled back, and a
 login that passes the permission check (see "What `check-login` refuses" in `docs/login-check.md` for the classes it
 inspects and those it does not); that it cannot read outside the connected database; and that it cannot get data
-back from a call before that call's audit line is written. The line is appended after the SQL has run: when it
+back from a call before that call's audit line is written. Every `tools/call` request the MCP SDK passes to the
+server's message filters gets exactly one audit line before its answer, also when the SDK cannot read its
+parameters. Requests the SDK or its stdio transport rejects or drops before that point run no tool and have no line
+(`docs/audit-log.md`, "Requests with no audit line"). The line is appended after the SQL has run: when it
 cannot be written, the query has still run, and the call fails with no data. A call still running when the server
 exits with code 6 may have no audit line and returns no data.
+Server-level metadata that SQL Server shows every login through `public` (among them the host name, the operating
+system, the configuration and every database name) can be read, and is not counted as outside the connected
+database (`docs/reference.md`, "What the reader sees at server level").
 
 Out of scope: a database administrator, anyone who can change the server's binaries or its configuration, and anyone
 who can write the audit file. They can do more than this server can stop.
@@ -31,9 +37,13 @@ who can write the audit file. They can do more than this server can stop.
    and through a `public` grant of that kind.
 
 `run_query` also runs inside a transaction that is always rolled back. That is not counted as a layer: a rollback
-does not undo every effect. After the text has run, a second result set (`MultipleResultSets`) or a reported row
-change (`RowsChanged`) fails the call with no data. These are diagnostics, not a barrier: the server has already
-executed the text, and when the first result set was truncated the command is cancelled before either can be seen
+does not undo every effect. For example, with `AUTO_CREATE_STATISTICS ON` (the database default) a read can make
+SQL Server create a statistics object, which stays after the rollback: `run_query` with
+`SELECT COUNT(*) FROM dbo.ExampleOrders WHERE CodeText = 'abc'` took the table's rows in `sys.stats` from 1 to 2
+on SQL Server 2019, 2022 and 2025 (measured; no test). User data and table definitions were unchanged. After
+the text has run, a second result set (`MultipleResultSets`) or a reported row change (`RowsChanged`) fails the call
+with no data. These are diagnostics, not a barrier: the server has already executed the text, and when the first
+result set was truncated the command is cancelled before either can be seen
 (`ValueTypeTests`, `Limit_a_write_whose_first_result_set_is_truncated_is_not_seen_and_its_rows_are_returned_rolled_back`).
 
 ### What the login check covers
@@ -60,11 +70,12 @@ or a login, `ALTER` on an external model (SQL Server 2025) and `EXECUTE` on a sy
 are found only by the backstop. `ALTER` on an endpoint, a route, a message type, a remote service binding, a search
 property list or a database scoped credential and `TAKE OWNERSHIP` on a contract or a full-text stoplist are found by
 the class question and by the backstop, and an owner of any of those eight classes by the class question, also when a
-role the login is in is the owner (measured for a message type, a full-text stoplist and an endpoint; no act was run
-through a role). With each right, and as each owner, the login ran a statement that the plain reader could not run
-(measured; `docs/login-check.md` names each statement and what it changed, where a change was shown). With an allowed
-right held `WITH GRANT OPTION` the login granted it to another principal, and the plain reader could not (measured at
-schema, object, column, database and server scope).
+role the login is in is the owner (measured for a message type, a full-text stoplist and an endpoint, and for a route
+owned by a role that the login's role is in; no act was run through a role). With each right, and as each owner,
+the login ran a statement that the plain reader could not run (measured; `docs/login-check.md` names each statement
+and what it changed, where a change was shown). With an allowed right held `WITH GRANT OPTION` the login granted it
+to another principal, and the plain reader could not (measured at schema, object, column, database and server
+scope).
 A reader with `SELECT` on a schema that holds a temporal or ledger history table is refused:
 on SQL Server 2019 it could insert into the temporal history table through `OUTPUT ... INTO` (measured); on 2022
 and 2025 no insert that was tried ran. `docs/login-check.md` explains why and what to grant instead. The full lists of
@@ -131,12 +142,13 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
   the grantee, 229 for the reader; see `docs/login-check.md`); an owner of each of the eight classes named there, and
   a login holding an allowed right `WITH GRANT OPTION` at schema, object, column, database and server scope, directly
   and through a role, get their exact findings and an act each while the reader cannot; a member of a role that owns a
-  schema, a message type, a full-text stoplist, an endpoint or a server role, and a login in a database where `public`
-  holds `SELECT` and `INSERT` `WITH GRANT OPTION`, get their exact findings (no act); a login that sees other
-  principals' grants on a user, an application role and a login passes; a plain reader passes in `master` and in a
-  database with change data capture enabled at database level (`sys.sp_cdc_enable_db`, no table enabled for capture;
-  `docs/login-check.md` gives a measurement with captured tables), and is refused in `msdb` with the exact list
-  `public` may execute there; how a NULL answer's finding is printed (the NULL path in the query has no test).
+  schema, a message type, a full-text stoplist, an endpoint or a server role, or a route through a nested role, and a
+  login in a database where `public` holds `SELECT` and `INSERT` `WITH GRANT OPTION`, get their exact findings (no
+  act); a login that sees other principals' grants on a user, an application role and a login passes; a plain
+  reader passes in `master` and in a database with change data capture enabled at database level
+  (`sys.sp_cdc_enable_db`, no table enabled for capture; `docs/login-check.md` gives a measurement with captured
+  tables), and is refused in `msdb` with the exact list `public` may execute there; how a NULL answer's finding is
+  printed (the NULL path in the query has no test).
 - `AuditTests`: one audit line per call plus one startup line, no data when the audit file fails, a `TooLong` text
   is not recorded, and shutdown waits for a call in flight.
 - `CapsTests`: row cap, character cap, cell cut, command timeout, lock timeout.
@@ -150,15 +162,17 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
 - `LargeValueTests`: a 200,000,000-character value is cut, ends the result as `long_value` and is never held whole
   (asserted: less than 64 MiB allocated), while its rest still crosses the network (asserted).
 - `SchemaToolTests`: the schema tools match the database; hostile or foreign names are answered as not found;
-  argument limits; names with invisible characters refused; a table without a grant is not visible; the character
-  cap; tools stay in the checked database.
+  argument limits; names with invisible characters refused; a table without a grant is not found by `describe_table`,
+  not listed by `list_tables` and not in `sys.objects`; the character cap; tools stay in the checked database.
 - `ErpScaleTests`: `list_tables` and the startup check on 20,000 tables.
 - `ServerConfigTests`: the configuration's text form leaves out the connection string.
 - `StdioServerTests`: the built server as a child process over stdio; start with `sa` exits 3; a login whose only
   finding widens reading is refused with the startup and `check-login` texts; the commands' exit codes; every failed
   call reaches the client with `isError` and its reason word first, once
   (`Every_failed_call_reaches_the_client_as_an_error_whose_text_starts_with_its_reason_word`); a connection string
-  the client library rejects; a second server on the same audit file; calls the SDK rejects are audited and logged;
+  the client library rejects; a second server on the same audit file; calls the SDK rejects are audited and logged,
+  also when it cannot read their parameters
+  (`Call_whose_parameters_the_sdk_cannot_read_is_audited_before_its_error_answer`);
   end of input exits 0, and a call in flight at end of input, even one that outlasts the drain window
   (`MSSQL_MCP_TIMEOUT_SECONDS` + 10 s), holds the process until it ends and writes its audit line; the login
   script; `sys.databases` visibility with and without `DENY VIEW ANY DATABASE`; no password in any result, stderr
@@ -203,7 +217,8 @@ Limits of this measurement:
 - **The login check does not inspect everything.** It looks at the server and the connected database only; in
   `master` it does not tell a `public` grant of `EXECUTE` on a system object from the default ones; the owner of
   an external model (SQL Server 2025), an availability group, an external language or an external table is not
-  found; a
+  found; the other object types it does not ask (defaults, rules, constraints, DML triggers, internal and system
+  tables) could not be given an owner of their own; a
   password-protected symmetric key can be opened with `REFERENCES` or `VIEW DEFINITION` plus its password, which
   the check allows. The lists and the other limits of the check are in `docs/login-check.md`,
   "What `check-login` refuses".
@@ -218,13 +233,17 @@ Limits of this measurement:
   two-part names. SQL Server's metadata visibility shows the reader the user objects it holds a permission on, plus
   the names of objects that ship with SQL Server (`is_ms_shipped`); a user table without a grant is not in
   `sys.objects` (`SchemaToolTests`, `Table_without_a_grant_is_not_found_not_listed_and_not_in_sys_objects`).
+  The error text of a `run_query` that names such a table does show it: error 229 for an existing table, 208 for a
+  missing one, 207 for a missing column on it; no row data (measured on SQL Server 2022; `docs/reference.md`,
+  "Error reasons").
   Database names are different: `public` holds `VIEW ANY DATABASE` by default, so `sys.databases` lists every
   database on the instance, also those the login has no user in (`StdioServerTests`,
   `Reader_sees_in_sys_databases_a_database_it_has_no_user_in`). Optional hardening, not in the login script:
   `DENY VIEW ANY DATABASE TO <login>` leaves only `master`, `tempdb` and the connected database visible, and
   `check-login` and the tools keep working (`Deny_view_any_database_hides_other_databases_and_the_server_still_works`).
 - **The audit `tables` field is a reading aid.** It lists names as written. SQL Server may resolve a differently
-  spelled name to the same object; full-width letters and some other characters were not measured. `sql` and
+  spelled name to the same object; in a `run_query` text, full-width letters and some other characters were not
+  measured (a `describe_table` name with a full-width letter: `docs/reference.md`, "Tools"). `sql` and
   `sql_sha256` are the authoritative record. A `TooLong` text and a refused name argument are not recorded.
 - **CPU, memory and tempdb use are bounded only by the command timeout.** A heavy join or sort can load the server
   until the timeout ends it. The server does not limit how many calls run at once. The server-side answer is

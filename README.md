@@ -71,8 +71,11 @@ Read this before you install it.
 - **The answer this project offers is the login.** `scripts/create-readonly-login.sql` creates a login that gets
   SELECT only on the tables and views the firm lists in the script. SQL Server shows that login only the user
   tables and views it holds a permission on, plus the names of objects that ship with SQL Server; a table without a
-  grant is not found, not listed and not in `sys.objects` (`SchemaToolTests.cs`,
+  grant is not found by `describe_table`, not listed by `list_tables` and not in `sys.objects` (`SchemaToolTests.cs`,
   `Table_without_a_grant_is_not_found_not_listed_and_not_in_sys_objects`).
+- **A `run_query` error can show that a table without a grant exists, and its column names** (errors 229, 208, 207; no row data): [details](docs/reference.md#error-reasons).
+- **A read can leave an auto-created statistics object behind after the rollback**: [details](SECURITY.md#two-layers).
+- **The login sees what SQL Server shows `public`**, such as the host name and every database name: [details](docs/reference.md#what-the-reader-sees-at-server-level).
 
 More limits are in [SECURITY.md](SECURITY.md).
 
@@ -274,7 +277,9 @@ lines, is in [docs/demo.md](docs/demo.md).
 ## Try to break it
 
 If you get a write, a schema change, a read outside the connected database, or a call with no audit line through
-this server, please report it. Send this, as plain text:
+this server, please report it. A request the MCP SDK drops or rejects before the server sees it runs no tool and
+gets no line: not a finding ([list](docs/audit-log.md#requests-with-no-audit-line)); a tool that ran without a line is.
+Send this, as plain text:
 
 ```
 Exact text sent (the run_query sql argument, or the tool and its arguments):

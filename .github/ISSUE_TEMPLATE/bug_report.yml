@@ -5,8 +5,8 @@ body:
     attributes:
       value: |
         **Security problems do not go here.** A write, a schema change, a read outside the connected database, or a
-        call with no audit line is a security problem: report it privately through the Security tab ("Report a
-        vulnerability"), as SECURITY.md describes.
+        tool call that ran or returned a result with no audit line is a security problem: report it privately through
+        the Security tab ("Report a vulnerability"), as SECURITY.md describes.
 
         **Never paste** a connection string, a password, real data rows, or an audit file from a production system.
         Replace names and values you cannot share, and keep the shape of the text that shows the problem.

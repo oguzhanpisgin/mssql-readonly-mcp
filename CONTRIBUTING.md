@@ -15,7 +15,8 @@ Do not open a public issue for a security problem. Report it privately through G
 reporting, as [SECURITY.md](SECURITY.md) ("Reporting a problem") describes. We aim to answer within 3 days.
 
 A security problem includes any way to get a write, a schema change, a read outside the connected database, or a
-call with no audit line through this server. Send it in the report format of the README section "Try to break it".
+tool call that ran or returned a result with no audit line through this server. Send it in the report format of
+the README section "Try to break it".
 
 ## Issues
 

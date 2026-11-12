@@ -79,7 +79,13 @@ Each refusal is `DisallowedSyntax` unless named otherwise.
   and unassigned code points.
 - Inside bracketed and double-quoted names: the same space, separator, format and control characters.
 - A line comment (`--`) that contains a control character other than TAB, or a line or paragraph separator.
-- A `GO` token anywhere (`NotSingleBatch`); more than 64 nested parentheses (`TooDeep`).
+- A `GO` that ScriptDom reads as a batch separator, or more than one batch (`NotSingleBatch`). The tested rows put
+  `GO` on its own line, among them: `SELECT 1` newline `GO` newline `SELECT 2`, `GO` newline `SELECT 1`, and
+  `SELECT 1` newline `GO` (`RegressionTableTests.cs`). The gate returns a parse error before it looks for `GO`, so
+  `SELECT 1 x` newline `GO 2` is refused as `ParseError`. A `GO` the parser reads as a column alias is one statement:
+  `SELECT 1 GO` is allowed and returns one column named `GO`. These two were measured with `run_query` on SQL Server
+  2019, 2022 and 2025; no test holds them.
+- More than 64 nested parentheses (`TooDeep`).
 
 The gate parses with `TSql170Parser` (`ReadOnlyGate.cs`), which the package documents as the parser for version
 17.0; the package also ships `TSql180Parser`, which the gate does not use. `StatementTypeTests.cs`

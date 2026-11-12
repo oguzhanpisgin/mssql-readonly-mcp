@@ -157,7 +157,10 @@ the securable, `HAS_PERMS_BY_NAME` answered 1 for every right the class lists, t
 allowed because `public` holds it on the T-SQL endpoints. A member of a role that owns a securable is found the
 same way: measured on the three versions for a schema, a message type and a full-text stoplist owned by a database
 role, and for a database mirroring endpoint and a user-defined server role owned by a server role
-(`PermissionCheckTests.cs`; no act was run through a role).
+(`PermissionCheckTests.cs`; no act was run through a role). Ownership through a nested role counts too: the check
+named `ALTER`, `CONTROL` and `TAKE OWNERSHIP` on the route for a member of a role inside the role that owns it
+(measured on the three versions; no act; `PermissionCheckTests.cs`,
+`Member_of_a_role_inside_the_role_that_owns_a_route_is_named_for_it`).
 
 `SEND` on a service lets a dialog begun in a `TRUSTWORTHY` database put a message on the service's queue. `SEND`
 alone does not make the service visible to the login, so the backstop (below) finds the grant in
@@ -192,7 +195,8 @@ on a certificate or a catalog) have no act of their own. The owners of the eight
 message type's validation changed, a contract dropped, a remote service binding's `ANONYMOUS` setting changed, a
 route's address changed, a credential's identity changed, a stoplist dropped and created again, a property added
 to a search property list, an endpoint's port changed and set back. A member of a role that owns a schema, a
-message type, a full-text stoplist, an endpoint or a server role gets its exact findings, with no act.
+message type, a full-text stoplist, an endpoint or a server role, or a route through a nested role, gets its exact
+findings, with no act.
 
 Limits of the class rules:
 
@@ -213,7 +217,13 @@ Limits of the class rules:
   15151). Using the model takes a call to its endpoint over the network and was not measured (the server option
   `external rest endpoint enabled` was 0). The owner of an availability group, an external language or an
   external table (not among the object types the check asks) is not asked either; none could be created in the
-  test images (see below).
+  test images (see below). The other object types the check does not ask cannot take an owner of their own:
+  `ALTER AUTHORIZATION` fails with 15344 on a default or a rule, 15346 on a constraint or a DML trigger, and 15151
+  on an internal or system table; no such row had an owner in a user database, `master`, `msdb` or `tempdb`
+  (measured on the three images; CLR triggers and edge constraints were not measured). A table type's owner is set
+  with `ON TYPE::` and asked by the class question. On a default or a rule `HAS_PERMS_BY_NAME` answers 1 for
+  `CONTROL` and `ALTER` to a login with `SELECT` on the schema, who is still refused `DROP` (3701) and
+  `sp_bindefault` or `sp_bindrule` (297); the check does not ask those types (measured on the three images).
 - In the backstop, a grant to a Windows or Microsoft Entra group is asked with `IS_MEMBER`; that branch was not
   measured (the test containers have no such principals).
 - The backstop does not read a `DENY` next to a grant, so the grant is still reported.
@@ -233,11 +243,13 @@ the login can see does not count, and neither does another principal's grant on 
 where `HAS_PERMS_BY_NAME` answers 1 for `IMPERSONATE` (measured on the user). A row in state `W` (granted
 `WITH GRANT OPTION`) of a right the check allows counts the same way, also one held by `public` (measured:
 `SELECT WITH GRANT OPTION on object [dbo].[PublicNotes]`, and a refused right `public` holds so keeps its one
-finding, `INSERT on object [dbo].[PublicNotes]`; `PermissionCheckTests.cs`), except that one whose grantee cannot
-be seen does not count (see the limits above). Any other row is a finding marked `could not be checked`; no test
-produces one. A securable whose name the login cannot see is named by its id, and a right that an earlier item
-also finds is printed once. A login holding `VIEW DEFINITION` on a user, an application role and a login, each
-with other principals' grants on it, passes (`PermissionCheckTests.cs`).
+finding, `INSERT on object [dbo].[PublicNotes]`; `PermissionCheckTests.cs`; at server scope, after
+`GRANT VIEW ANY DATABASE TO public WITH GRANT OPTION` (accepted), a plain reader got the finding
+`VIEW ANY DATABASE WITH GRANT OPTION on server`, measured with sqlcmd on the three images, no test), except that
+one whose grantee cannot be seen does not count (see the limits above). Any other row is a finding marked
+`could not be checked`; no test produces one. A securable whose name the login cannot see is named by its id, and a
+right that an earlier item also finds is printed once. A login holding `VIEW DEFINITION` on a user, an application
+role and a login, each with other principals' grants on it, passes (`PermissionCheckTests.cs`).
 
 In `master`, a default installation grants `public` `EXECUTE` on system objects in schema `sys`: 1623 on 2019,
 1739 on 2022 and 1838 on 2025, all with negative object ids (measured on the three images). The backstop leaves

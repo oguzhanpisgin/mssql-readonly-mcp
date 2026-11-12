@@ -1,7 +1,7 @@
 # The audit log
 
-This page covers the audit file's format, what it leaves out, how to verify it and its limits; step 6 of the
-[README](../README.md#6-first-question) gives the `verify-audit` command and its exit codes.
+This page covers the audit file's format, what it leaves out, how to verify it, its limits and the requests that get
+no line; step 6 of the [README](../README.md#6-first-question) gives the `verify-audit` command and its exit codes.
 
 One JSON object per line, UTF-8, ending in `\n` (`src/MssqlReadOnlyMcp.Audit/AuditFormat.cs`). The fields always
 appear in this order:
@@ -11,10 +11,10 @@ appear in this order:
 | `seq` | 1, 2, 3, ... with no gaps. |
 | `ts` | UTC time from the host clock, `yyyy-MM-ddTHH:mm:ss.fffZ`. |
 | `session` | A new id each time the server starts. |
-| `tool` | `startup`, `list_tables`, `describe_table`, `run_query`, or `unknown` for a call to a tool name the server does not have. |
+| `tool` | `startup`, `list_tables`, `describe_table`, `run_query`, or `unknown` for a call to a tool name the server does not have or whose tool name cannot be read. |
 | `decision` | `allowed`, `refused` or `error`. |
 | `reason` | `Allowed`, or a reason word from the tables in ["Error reasons"](reference.md#error-reasons) (`LoginCanWrite` for a start refused on a login-check finding). |
-| `sql` | The SQL text as received for `run_query`; null for the other tools, for a `TooLong` refusal, and for a call the SDK rejected (`InvalidRequest`). An unpaired surrogate is written as U+FFFD (`AuditLog.cs`); the gate refuses such text, so only refused calls are affected, and `sql_sha256` is the same for both forms. |
+| `sql` | The SQL text as received for `run_query`; null for the other tools, for a `TooLong` refusal, and for a call rejected before a tool ran (`InvalidRequest`), including a request whose parameters the MCP SDK cannot read. An unpaired surrogate is written as U+FFFD (`AuditLog.cs`); the gate refuses such text, so only refused calls are affected, and `sql_sha256` is the same for both forms. |
 | `sql_sha256` | SHA-256 of `sql`, or null. |
 | `tables` | For `run_query`, the table and view names the SQL refers to, as written. For `describe_table`, the resolved `schema.name` when the lookup succeeded, empty when the argument itself was refused (missing, too long, or with a hidden character), otherwise the name as written. Empty for `list_tables`. |
 | `rows` | Rows or items returned, or null when no data was returned. |
@@ -31,7 +31,8 @@ written.
 
 `sql` and `sql_sha256` are the authoritative record of what was asked; `tables` is a reading aid. It lists names as
 written, and SQL Server may resolve a differently spelled name to the same object (measured for U+200D and U+FEFF,
-which the gate now refuses inside names; full-width letters and some other characters were not measured).
+which the gate now refuses inside names; in a `run_query` text, full-width letters and some other characters were
+not measured; for a `describe_table` name see [Tools](reference.md#tools)).
 
 What is left out of a line, so that it stays small and never names something other than what was read:
 
@@ -71,3 +72,31 @@ Limits, quoted from the `AuditLog` class documentation (`src/MssqlReadOnlyMcp.Au
 
 The server has no command that copies the last hash elsewhere. To detect tail truncation or a rewrite, copy the
 `hash` of the last line to a place the server's user cannot write, on a schedule you choose.
+
+## Requests with no audit line
+
+Every `tools/call` request the MCP SDK passes to the server's message filters gets exactly one audit line before
+its answer, also when the SDK cannot read its parameters (a lone surrogate such as `\ud800` in an argument,
+`arguments` that is not an object, no tool name). Such a line has reason `InvalidRequest`, the tool name when it
+can be read and `unknown` otherwise, and `sql` null; the client gets the SDK's JSON-RPC error
+`-32603 "An error occurred."` (`src/MssqlReadOnlyMcp/CallToolAuditFilter.cs`, `WrapMessages`; `StdioServerTests.cs`,
+`Call_whose_parameters_the_sdk_cannot_read_is_audited_before_its_error_answer`). As for every call, when the line
+cannot be written the call fails with no data, and a call still running when the server exits with code 6 may have
+no audit line ([Commands and exit codes](reference.md#commands-and-exit-codes)).
+
+Requests the SDK or its stdio transport rejects or drops before that point run no tool and get no audit line.
+That is expected and not a finding; a tool that ran without an audit line is one (README, "Try to break it").
+These are:
+
+- lines the stdio transport drops or rejects before they become a request: malformed JSON, a batch array,
+  `"jsonrpc":"1.0"`, a lone surrogate in `method`, an `id` that is null, an object, an array, `true`, a fraction or
+  a number too large for 64 bits, or a string `id` with a lone surrogate;
+- a `tools/call` sent as a notification, without an `id`;
+- on protocol revision 2026-07-28, a request whose per-request `_meta` the SDK rejects before the server sees it
+  (`io.modelcontextprotocol/clientCapabilities` missing or not an object; an `io.modelcontextprotocol/protocolVersion`
+  that is unsupported or holds a lone surrogate; and, once the connection has served a 2026-07-28 request without
+  `initialize`, any later request whose `_meta` has no string `io.modelcontextprotocol/protocolVersion`).
+
+The shapes in this list were sent to the server over stdio on the SQL Server 2022 image, with a probe that is not
+kept as a test, except the last case of the third item, which was measured against the SDK in process, not on the
+stdio server.
