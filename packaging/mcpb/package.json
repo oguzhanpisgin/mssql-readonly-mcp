@@ -1,0 +1,9 @@
+{
+  "name": "mssql-readonly-mcp-mcpb-tools",
+  "private": true,
+  "description": "Pins the MCPB CLI that release.yml uses to pack the .mcpb bundles. Not part of the server.",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/mcpb": "2.1.2"
+  }
+}

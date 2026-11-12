@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Protocol;
 using MssqlReadOnlyMcp;
 using MssqlReadOnlyMcp.Audit;
 
@@ -146,7 +148,11 @@ static async Task<int> RunServerAsync()
         builder.Services.AddSingleton(sp => new ToolService(
             config, gateway, audit, database, sp.GetRequiredService<ILogger<ToolService>>()));
         builder.Services
-            .AddMcpServer()
+            .AddMcpServer(options => options.ServerInfo = new Implementation
+            {
+                Name = "mssql-readonly-mcp",
+                Version = ServerVersion.Current,
+            })
             .WithStdioServerTransport()
             .WithRequestFilters(filters => filters.AddCallToolFilter(CallToolAuditFilter.Wrap))
             .WithTools<McpTools>();
@@ -168,5 +174,29 @@ static async Task<int> RunServerAsync()
         }
 
         return ExitCodes.Ok;
+    }
+}
+
+namespace MssqlReadOnlyMcp
+{
+    /// <summary>
+    /// The version the server reports as MCP <c>serverInfo.version</c>: the assembly's informational version (set by
+    /// <c>-p:Version=</c> at publish) without the <c>+commit</c> suffix the SDK appends, so a tag build reports
+    /// <c>0.1.0</c>. Without it the MCP SDK would report the four-part assembly version (<c>0.1.0.0</c>).
+    /// </summary>
+    internal static class ServerVersion
+    {
+        /// <summary>Reported when the assembly carries no informational version.</summary>
+        public const string Fallback = "0.0.0-unknown";
+
+        public static string Current { get; } = FromInformationalVersion(
+            typeof(ServerVersion).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+
+        public static string FromInformationalVersion(string? informationalVersion)
+        {
+            var plus = informationalVersion?.IndexOf('+') ?? -1;
+            var version = plus >= 0 ? informationalVersion![..plus] : informationalVersion;
+            return string.IsNullOrEmpty(version) ? Fallback : version;
+        }
     }
 }

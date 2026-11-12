@@ -30,3 +30,18 @@ updates:
         update-types:
           - minor
           - patch
+
+  # The MCPB CLI that release.yml uses to pack the bundles (packaging/mcpb/package-lock.json).
+  - package-ecosystem: npm
+    directory: /packaging/mcpb
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    rebase-strategy: disabled
+    groups:
+      npm-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

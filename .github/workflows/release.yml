@@ -1,0 +1,269 @@
+# Release build. Third-party actions are pinned by full commit SHA (looked up with `git ls-remote --tags`); the
+# version is in the comment after each SHA. checkout and setup-dotnet use the same pins as ci.yml.
+#
+# A pushed tag vX.Y.Z on a commit of main builds the server for win-x64, linux-x64 and osx-arm64 (self-contained,
+# not trimmed, not Native AOT) with packaging/build-release.ps1, in three jobs:
+#   build    archives and their checksums; runs no npm code.
+#   bundle   MCPB bundles packed from the publish output of `build`; the only job that runs the MCPB CLI (npm).
+#   release  tag runs only: checks the files, writes the one SHA256SUMS over all six, attests them and creates a
+#            draft release. The maintainer reads the draft and publishes it by hand (docs/releasing.md).
+# A run started by hand (workflow_dispatch) builds the same files with version 0.0.0-dev and only uploads them as
+# workflow artifacts: no attestation, no tag, no release.
+#
+# This workflow runs the unit tests only. The integration tests (three SQL Server versions) run in ci.yml on the
+# same commit; the maintainer checks that ci.yml is green on that commit before pushing the tag.
+
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # The checksums of the archives and of the release notes reach the release job as job outputs, not as artifacts:
+    # the bundle job (npm code) runs in the same workflow run and could replace an artifact together with a
+    # checksum file that travels next to it.
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      archives: ${{ steps.sums.outputs.archives }}
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history and all branches: the tag check below needs origin/main.
+          fetch-depth: 0
+
+      # Tag runs only (event push): the tagged commit must be on main and its release notes must exist.
+      - name: Version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::Tag $REF_NAME points at $GITHUB_SHA, which is not on main."
+              exit 1
+            fi
+            if [ ! -f "docs/releases/$REF_NAME.md" ]; then
+              echo "::error::docs/releases/$REF_NAME.md is missing on the tagged commit (the release notes)."
+              exit 1
+            fi
+            echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Build (warnings are errors)
+        run: dotnet build MssqlReadOnlyMcp.slnx -c Release -warnaserror
+
+      - name: Gate unit tests
+        run: dotnet test tests/MssqlReadOnlyMcp.Gate.Tests -c Release --no-build
+
+      # Two of these tests start pwsh (PowerShell 7), which the ubuntu-latest image provides.
+      - name: Audit unit tests
+        run: dotnet test tests/MssqlReadOnlyMcp.Audit.Tests -c Release --no-build
+
+      - name: Publish and archive
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          foreach ($rid in 'win-x64', 'linux-x64', 'osx-arm64') {
+            ./packaging/build-release.ps1 -Version $env:VERSION -Rid $rid -OutputDirectory dist `
+              -WorkDirectory "$env:RUNNER_TEMP/release-work"
+          }
+
+      # Written outside dist/, so it is not uploaded; it leaves this job only as the output `archives` (base64).
+      - name: Archive checksums
+        id: sums
+        working-directory: dist
+        run: |
+          sha256sum -- *.zip *.tar.gz > "$RUNNER_TEMP/archives.sha256"
+          cat "$RUNNER_TEMP/archives.sha256"
+          ls -l
+          echo "archives=$(base64 -w0 "$RUNNER_TEMP/archives.sha256")" >> "$GITHUB_OUTPUT"
+
+      - name: Release notes checksum
+        id: notes
+        if: github.event_name == 'push'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "notes=$(sha256sum "docs/releases/$REF_NAME.md" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the archives
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-archives
+          path: dist/
+          if-no-files-found: error
+
+      # The bundle job packs these folders; file modes are not kept in an artifact, the script sets the bit again.
+      - name: Upload the publish output
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: publish-output
+          path: ${{ runner.temp }}/release-work/publish/
+          if-no-files-found: error
+
+      - name: Upload the release notes
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: docs/releases/${{ github.ref_name }}.md
+          if-no-files-found: error
+
+  bundle:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      # For packaging/ (script, manifest template, pinned CLI) and LICENSE.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: publish-output
+          path: ${{ runner.temp }}/publish
+
+      # The MCPB CLI and every package under it are pinned with their integrity hashes in package-lock.json.
+      - name: Install the MCPB CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/mcpb-tools"
+          cp packaging/mcpb/package.json packaging/mcpb/package-lock.json "$RUNNER_TEMP/mcpb-tools/"
+          npm ci --ignore-scripts --no-audit --no-fund --prefix "$RUNNER_TEMP/mcpb-tools"
+
+      - name: Pack the bundles
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          foreach ($rid in 'win-x64', 'linux-x64', 'osx-arm64') {
+            ./packaging/build-release.ps1 -Version $env:VERSION -Rid $rid -OutputDirectory bundles `
+              -WorkDirectory "$env:RUNNER_TEMP/bundle-work" -BundleFrom "$env:RUNNER_TEMP/publish/$rid" `
+              -McpbTools "$env:RUNNER_TEMP/mcpb-tools"
+          }
+
+      - name: Upload the bundles
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-bundles
+          path: bundles/*.mcpb
+          if-no-files-found: error
+
+  # Tag runs only. The one job with write permissions; it checks out nothing and runs no build and no npm code.
+  release:
+    needs: [build, bundle]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the draft release and upload its assets
+      id-token: write # sign the attestation (Sigstore)
+      attestations: write # store the attestation
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-archives
+          path: dist
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-bundles
+          path: dist
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: notes
+
+      # Six downloaded files: three archives, three bundles. SHA256SUMS, the seventh asset, is written below.
+      - name: Check the downloaded file set
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          expected=$(printf '%s\n' \
+            "mssql-readonly-mcp-$VERSION-win-x64.zip" "mssql-readonly-mcp-$VERSION-win-x64.mcpb" \
+            "mssql-readonly-mcp-$VERSION-linux-x64.tar.gz" "mssql-readonly-mcp-$VERSION-linux-x64.mcpb" \
+            "mssql-readonly-mcp-$VERSION-osx-arm64.tar.gz" "mssql-readonly-mcp-$VERSION-osx-arm64.mcpb" | sort)
+          actual=$(ls -A dist | sort)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Expected the six release files. Expected: $(echo $expected). Got: $(echo $actual)."
+            exit 1
+          fi
+
+      # The expected values come from the build job's outputs, not from a downloaded file.
+      - name: Check the archives against the build job's checksums
+        working-directory: dist
+        env:
+          ARCHIVES_SHA256: ${{ needs.build.outputs.archives }}
+        run: |
+          printf '%s' "$ARCHIVES_SHA256" | base64 -d > ../archives.expected
+          sha256sum --check --strict ../archives.expected
+
+      - name: Check the release notes against the build job's checksum
+        env:
+          NOTES_SHA256: ${{ needs.build.outputs.notes }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$NOTES_SHA256" ]; then
+            echo "::error::The build job reported no checksum for the release notes."
+            exit 1
+          fi
+          echo "$NOTES_SHA256  notes/$TAG.md" | sha256sum --check --strict
+
+      - name: Stop if a release for the tag exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::A release for $TAG exists; delete the draft first."
+            exit 1
+          fi
+
+      - name: SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum -- *.zip *.tar.gz *.mcpb > SHA256SUMS
+          cat SHA256SUMS
+
+      # Build provenance for every file listed in SHA256SUMS (the three archives and the three bundles).
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::A release for $TAG exists; delete the draft first."
+            exit 1
+          fi
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --verify-tag \
+            --title "$TAG" \
+            --notes-file "notes/$TAG.md"

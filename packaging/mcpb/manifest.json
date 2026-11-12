@@ -1,0 +1,48 @@
+{
+  "manifest_version": "0.3",
+  "name": "mssql-readonly-mcp",
+  "display_name": "mssql-readonly-mcp",
+  "version": "0.0.0",
+  "description": "An MCP server that lets an AI assistant read one on-premises SQL Server database.",
+  "author": {
+    "name": "oguzhanpisgin",
+    "url": "https://github.com/oguzhanpisgin"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oguzhanpisgin/mssql-readonly-mcp"
+  },
+  "homepage": "https://github.com/oguzhanpisgin/mssql-readonly-mcp",
+  "support": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/issues",
+  "license": "MIT",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/mssql-readonly-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/mssql-readonly-mcp",
+      "args": [],
+      "env": {
+        "MSSQL_CONNECTION_STRING": "${user_config.connection_string}",
+        "MSSQL_MCP_AUDIT_LOG": "${user_config.audit_log}"
+      }
+    }
+  },
+  "compatibility": {
+    "platforms": ["win32", "darwin", "linux"]
+  },
+  "user_config": {
+    "connection_string": {
+      "type": "string",
+      "title": "SQL Server connection string",
+      "description": "Becomes MSSQL_CONNECTION_STRING. Use a login that passes check-login (see the README, \"Create the read-only login\"). The server adds ApplicationIntent=ReadOnly and Application Name=mssql-readonly-mcp.",
+      "required": true,
+      "sensitive": true
+    },
+    "audit_log": {
+      "type": "string",
+      "title": "Audit file path",
+      "description": "Becomes MSSQL_MCP_AUDIT_LOG. Path of the audit file, created with its folder if missing. Each server process needs its own audit file.",
+      "required": true
+    }
+  }
+}
