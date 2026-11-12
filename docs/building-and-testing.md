@@ -19,7 +19,7 @@ dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release
 - `MSSQL_TEST_IMAGE` selects the SQL Server container image, for example
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`. Without it the tests use
   `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04` (`SqlServerFixture.cs`).
-- Test counts at the time of writing: Gate 364, Audit 55, Integration 240 on each of the three images named under
+- Test counts at the time of writing: Gate 364, Audit 55, Integration 245 on each of the three images named under
   ["Prerequisites"](../README.md#1-prerequisites).
 - `ErpScaleTests.cs` creates a second database with 20,000 tables and asserts that the startup check passes there
   within the default connection timeout (15 s); it writes the time to its output. Measured on 2026-11-12 on one

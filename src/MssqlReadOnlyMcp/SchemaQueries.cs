@@ -101,6 +101,9 @@ internal static class SchemaQueries
             totalCount = reader.GetInt64(3);
         }
 
+        // A read the deadline cancelled ends the call as a timeout, never as a shorter list.
+        cancellationToken.ThrowIfCancellationRequested();
+
         var payload = new StringBuilder("{\"tables\":[");
         var endReserve = ListEnding(MaxListItems, totalCount, ResultPayload.ReasonMaxChars).Length;
         var count = 0;
@@ -276,6 +279,8 @@ internal static class SchemaQueries
 
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
+            // A read the deadline cancelled ends the call as a timeout, never as NotFound.
+            cancellationToken.ThrowIfCancellationRequested();
             return null;
         }
 
@@ -308,6 +313,8 @@ internal static class SchemaQueries
         {
             foreignKeys.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4)));
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         var columnItems = columns.Select(c => ResultPayload.Json(w =>
         {

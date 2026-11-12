@@ -3,7 +3,7 @@ using Microsoft.Data.SqlClient;
 
 namespace MssqlReadOnlyMcp.IntegrationTests;
 
-/// <summary>R-4: row cap, character cap, cell cap, command timeout and lock timeout.</summary>
+/// <summary>R-4: row cap, character cap, cell cap, time limit and lock timeout.</summary>
 [Collection(SqlServerCollection.Name)]
 public sealed class CapsTests(SqlServerFixture fixture)
 {

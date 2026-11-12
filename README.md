@@ -35,7 +35,7 @@ Each promise in short; the full text, with the test files that check it, is in [
   has still run and the call returns an error and no data ([full text](docs/promises.md#audit-line-before-data)).
 - **Results are capped by rows, characters and time** ([full text](docs/promises.md#result-caps)).
 - **A query waits a bounded time for locks and loses deadlocks against default-priority sessions.** Its own shared
-  locks can still make a writer wait, up to the command timeout
+  locks can still make a writer wait, up to the time limit of the call
   ([full text](docs/promises.md#lock-timeout-and-deadlock-priority)).
 
 How each promise is checked, and where. Test counts are kept in one place,
@@ -47,7 +47,7 @@ How each promise is checked, and where. Test counts are kept in one place,
 | SQL Server ran the allowed text or refused it before running | Every allowed row of the regression table is sent to SQL Server as the reader; lexer cases (invisible and separator characters, comment and string forms, ODBC escapes) are sent too, and the test asserts exactly how many end each way | [DifferentialTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/DifferentialTests.cs), [ParserVersusServerLexerTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/ParserVersusServerLexerTests.cs) |
 | The server refuses to start with a login that fails its permission check | Started with `sa`, the process exits 3 with one stderr line | [StdioServerTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.cs), [PermissionCheckTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/PermissionCheckTests.cs) |
 | No call returns data before its audit line is written | One line per call plus one startup line; no data when the audit file fails | [AuditTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/AuditTests.cs), [StdioServerTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.cs), [MssqlReadOnlyMcp.Audit.Tests](tests/MssqlReadOnlyMcp.Audit.Tests) |
-| Results are capped by rows, characters and time | Row cap, character cap, cell cut, command timeout, lock timeout | [CapsTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CapsTests.cs) |
+| Results are capped by rows, characters and time | Row cap, character cap, cell cut, time limit per call, lock timeout; a row that cannot fit the character cap is not held whole in memory, but the cells read and the rest of the row still cross the network | [CapsTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CapsTests.cs), [CallLimitTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CallLimitTests.cs) |
 | Bounded lock wait, low deadlock priority | An exclusive lock held elsewhere returns the lock timeout reason near the limit; against a session at the default priority the reader is the deadlock victim, and the next call works | [CapsTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CapsTests.cs), [ValueTypeTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/ValueTypeTests.cs) |
 | Tested on SQL Server 2019, 2022 and 2025 | On every push and pull request: the build and unit tests, then, when they pass, the integration tests on each of three container images pinned by exact tag | [ci.yml](.github/workflows/ci.yml); test counts in [Building and testing](docs/building-and-testing.md); the CI badge above |
 | Code scanning | CodeQL analyses the C# code and the workflow files on pushes to `main`, on pull requests and once a week | [codeql.yml](.github/workflows/codeql.yml) |
@@ -76,6 +76,7 @@ Read this before you install it.
 - **A `run_query` error can show that a table without a grant exists, and its column names** (errors 229, 208, 207; no row data): [details](docs/reference.md#error-reasons).
 - **A read can leave an auto-created statistics object behind after the rollback**: [details](SECURITY.md#two-layers).
 - **The login sees what SQL Server shows `public`**, such as the host name and every database name: [details](docs/reference.md#what-the-reader-sees-at-server-level).
+- **The login check runs once, at start**; rights granted later are not seen until a restart: [details](docs/login-check.md).
 
 More limits are in [SECURITY.md](SECURITY.md).
 

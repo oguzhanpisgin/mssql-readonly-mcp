@@ -9,9 +9,11 @@ Before you run it:
   1. Edit the GRANT lines in the EDIT section: one line per table or view the assistant may read.
   2. Set three sqlcmd variables. sqlcmd reads them from environment variables, so the password is neither in this
      file nor on a command line:
-       MCP_LOGIN     login and user name, for example mcp_reader (no ] character)
-       MCP_DATABASE  the one database the assistant may read
+       MCP_LOGIN     login and user name, for example mcp_reader (no ' and no ] character)
+       MCP_DATABASE  the one database the assistant may read (no ' and no ] character)
        MCP_PASSWORD  the new login's password (no ' character)
+     The script places MCP_LOGIN and MCP_DATABASE both inside N'...' and inside [...], and MCP_PASSWORD only
+     inside N'...'; it does not escape them, so one of those characters breaks the statement or changes it.
 
 Run it as an administrator, from PowerShell 7:
   $env:MCP_LOGIN = 'mcp_reader'

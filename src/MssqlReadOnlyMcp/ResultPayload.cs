@@ -102,9 +102,10 @@ internal static class ResultPayload
                 break;
             }
 
-            var (row, longValue) = await ReadRowAsync(reader, fieldCount, cancellationToken).ConfigureAwait(false);
             var separator = rowCount == 0 ? 0 : 1;
-            if (payload.Length + separator + row.Length + endReserve > maxChars)
+            var room = maxChars - payload.Length - separator - endReserve;
+            var (row, longValue) = await ReadRowAsync(reader, fieldCount, room, cancellationToken).ConfigureAwait(false);
+            if (row is null || row.Length > room)
             {
                 truncatedReason = ReasonMaxChars;
                 break;
@@ -136,15 +137,30 @@ internal static class ResultPayload
         return $"],\"row_count\":{count},\"truncated\":{truncatedJson},\"truncated_reason\":{reasonJson}}}";
     }
 
-    /// <summary>One row as JSON, and whether a value in it was longer than <see cref="MaxBinaryCount"/>.</summary>
-    private static async Task<(string Json, bool LongValue)> ReadRowAsync(SqlDataReader reader, int fieldCount, CancellationToken cancellationToken)
+    /// <summary>
+    /// One row as JSON, and whether a value in it was longer than <see cref="MaxBinaryCount"/>. Null when what was read
+    /// of the row already cannot fit in <paramref name="room"/> characters: the rest of the row is not read.
+    /// </summary>
+    private static async Task<(string? Json, bool LongValue)> ReadRowAsync(
+        SqlDataReader reader, int fieldCount, int room, CancellationToken cancellationToken)
     {
         var cells = new object?[fieldCount];
         var longValue = false;
+
+        // A lower bound on the row's JSON length: the brackets, the separators and one character per value, plus the
+        // characters and quotes of each text value read so far (escaping only lengthens it). Past the room, the row
+        // cannot fit whatever the remaining values are.
+        long least = 2 + (fieldCount - 1) + fieldCount;
         for (var i = 0; i < fieldCount; i++)
         {
             var (cell, isLong) = await ReadCellAsync(reader, i, cancellationToken).ConfigureAwait(false);
             cells[i] = cell;
+            least += cell is string text ? text.Length + 1 : 0;
+            if (least > room)
+            {
+                return (null, false);
+            }
+
             if (isLong)
             {
                 // The rest of this value is still on the wire; reading the next column would transfer it.
@@ -218,6 +234,8 @@ internal static class ResultPayload
             long read;
             while (total <= MaxBinaryCount)
             {
+                // GetChars is synchronous and takes no token: the deadline is checked between its calls.
+                cancellationToken.ThrowIfCancellationRequested();
                 var target = total < head.Length ? head : scratch;
                 var offset = total < head.Length ? (int)total : 0;
                 read = reader.GetChars(ordinal, total, target, offset, target.Length - offset);

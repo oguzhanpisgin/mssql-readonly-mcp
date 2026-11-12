@@ -538,11 +538,12 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
     }
 
     [Fact]
-    public async Task Call_still_running_at_end_of_input_holds_the_process_past_the_drain_window_and_is_audited()
+    public async Task Call_stalled_at_connection_open_ends_at_the_time_limit_of_the_call_and_is_audited()
     {
         // The server reaches SQL Server through a proxy owned by this test. After startup the proxy accepts new
-        // connections and never answers them, so the call's connection open waits for its connect timeout (20 s),
-        // longer than the drain window (MSSQL_MCP_TIMEOUT_SECONDS + 10 s = 12 s).
+        // connections and never answers them. The connect timeout (20 s) is longer than the drain window
+        // (MSSQL_MCP_TIMEOUT_SECONDS + 10 s = 12 s), but the call's time limit (2 s) covers opening the connection
+        // too, so the call ends at that limit, before the drain window.
         const int ConnectTimeoutSeconds = 20;
         const int DrainWindowSeconds = 2 + 10;
         await using var proxy = StallingProxy.Start(fixture.SalesReaderConnectionString);
@@ -564,18 +565,17 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
         var run = await server.CloseInputAndWaitAsync(TimeSpan.FromSeconds(90));
         watch.Stop();
 
-        // What the SDK 2.4.0 does at end of input: it keeps the host running until the call ends on its own, however
-        // long that takes (the host's shutdown timeout does not apply; the host is not stopping yet). The drain
-        // after the host stops then finds no call, so end of input never ends with exit 6; that code needs a stop
-        // that cancels calls (Ctrl+C) and a call that does not end within the window.
+        // What the SDK 2.4.0 does at end of input: it keeps the host running until the call ends on its own (the
+        // host's shutdown timeout does not apply; the host is not stopping yet). The call ends at its time limit,
+        // not at the connect timeout, so the process exits 0 inside the drain window.
         Assert.True(run.ExitCode == ExitCodes.Ok, $"exit {run.ExitCode} after {watch.Elapsed}; stderr: {string.Join(" | ", run.Stderr)}");
         Assert.True(
-            watch.Elapsed > TimeSpan.FromSeconds(DrainWindowSeconds),
-            $"the process ended {watch.Elapsed} after end of input, inside the drain window");
+            watch.Elapsed < TimeSpan.FromSeconds(DrainWindowSeconds),
+            $"the process ended {watch.Elapsed} after end of input, past the drain window");
         AssertOnlyCallLogLines(run.Stderr);
         var lines = TestText.AuditLines(auditPath);
         Assert.Equal(2, lines.Count);
-        // The stalled connection open ends as a client-side login timeout (SqlException number -2).
+        // The stalled connection open ends at the call's time limit, answered and audited as a timeout.
         Assert.Equal("run_query:error:Timeout", Key(lines[1]));
         var verify = AuditVerifier.Verify(auditPath);
         Assert.True(verify.Ok, verify.Message);

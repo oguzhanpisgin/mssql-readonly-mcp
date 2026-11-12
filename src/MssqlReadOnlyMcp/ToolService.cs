@@ -37,7 +37,7 @@ internal sealed class ToolService(
     public int CallsInFlight => Volatile.Read(ref callsInFlight);
 
     public Task<string> ListTablesAsync(string? schema, string? nameFilter, CancellationToken cancellationToken) =>
-        CompleteAsync("list_tables", null, async call =>
+        CompleteAsync("list_tables", null, cancellationToken, async (call, callToken) =>
         {
             // list_tables records neither argument in its audit line, so a refusal here records nothing of them.
             if (schema is { Length: > SchemaQueries.MaxNamePartChars })
@@ -55,7 +55,7 @@ internal sealed class ToolService(
             RefuseHiddenCharacters("schema", schema);
             RefuseHiddenCharacters("name_filter", nameFilter);
             var result = await SchemaQueries.ListTablesAsync(
-                    gateway, schema, nameFilter, config.MaxChars, config.TimeoutSeconds, cancellationToken)
+                    gateway, schema, nameFilter, config.MaxChars, config.TimeoutSeconds, callToken)
                 .ConfigureAwait(false);
             call.Rows = result.ItemCount;
             call.Truncated = result.Truncated;
@@ -63,7 +63,7 @@ internal sealed class ToolService(
         });
 
     public Task<string> DescribeTableAsync(string table, CancellationToken cancellationToken) =>
-        CompleteAsync("describe_table", null, async call =>
+        CompleteAsync("describe_table", null, cancellationToken, async (call, callToken) =>
         {
             if (string.IsNullOrWhiteSpace(table))
             {
@@ -90,7 +90,7 @@ internal sealed class ToolService(
             }
 
             var result = await SchemaQueries.DescribeTableAsync(
-                    gateway, table, config.MaxChars, config.TimeoutSeconds, cancellationToken)
+                    gateway, table, config.MaxChars, config.TimeoutSeconds, callToken)
                 .ConfigureAwait(false)
                 ?? throw new ToolRefusalException(NotFound());
             call.Tables = result.Tables;
@@ -102,7 +102,7 @@ internal sealed class ToolService(
     public Task<string> RunQueryAsync(string sql, int? maxRows, CancellationToken cancellationToken) =>
         // Text over the gate's size cap is never copied into the audit line, whatever its size, so the line always
         // fits and the call is always audited. The gate refuses it as TooLong without parsing.
-        CompleteAsync("run_query", sql is { Length: var length } && length > MaxSqlChars ? null : sql ?? string.Empty, async call =>
+        CompleteAsync("run_query", sql is { Length: var length } && length > MaxSqlChars ? null : sql ?? string.Empty, cancellationToken, async (call, callToken) =>
         {
             var decision = ReadOnlyGate.Evaluate(sql, new GateOptions(DefaultDatabase: database, MaxSqlChars: MaxSqlChars));
             call.Tables = decision.Tables;
@@ -117,7 +117,7 @@ internal sealed class ToolService(
                 throw new ToolRefusalException(ToolErrors.GateRefusal(decision));
             }
 
-            return await ReadAllowedTextAsync(call, sql!, maxRows, cancellationToken).ConfigureAwait(false);
+            return await ReadAllowedTextAsync(call, sql!, maxRows, callToken).ConfigureAwait(false);
         });
 
     /// <summary>
@@ -125,7 +125,7 @@ internal sealed class ToolService(
     /// call. Internal so tests can show what the server side does with text the gate would refuse.
     /// </summary>
     internal Task<string> RunPastTheGateAsync(string sql, int? maxRows, CancellationToken cancellationToken) =>
-        CompleteAsync("run_query", sql, call => ReadAllowedTextAsync(call, sql, maxRows, cancellationToken));
+        CompleteAsync("run_query", sql, cancellationToken, (call, callToken) => ReadAllowedTextAsync(call, sql, maxRows, callToken));
 
     /// <summary>Everything <c>run_query</c> does after the gate allowed the text.</summary>
     private async Task<string> ReadAllowedTextAsync(CallState call, string sql, int? maxRows, CancellationToken cancellationToken)
@@ -157,9 +157,14 @@ internal sealed class ToolService(
             await using var command = gateway.CreateCommand(connection, sql, transaction, config.TimeoutSeconds);
             var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             QueryResult result;
+            bool moreResults;
             try
             {
                 result = await ResultPayload.ReadAsync(reader, rowCap, config.MaxChars, cancellationToken).ConfigureAwait(false);
+
+                // Inside the try, so a deadline or error here also cancels the command and closes the reader before
+                // the rollback.
+                moreResults = !result.Truncated && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -174,7 +179,7 @@ internal sealed class ToolService(
                 command.Cancel();
                 await DisposeQuietlyAsync(reader).ConfigureAwait(false);
             }
-            else if (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+            else if (moreResults)
             {
                 // The gate passed one statement; a second result set means SQL Server read the text differently.
                 // Nothing is returned.
@@ -359,8 +364,14 @@ internal sealed class ToolService(
         };
     }
 
-    /// <summary>Runs <paramref name="body"/>, appends one audit line, then returns the payload or throws the error.</summary>
-    private async Task<string> CompleteAsync(string tool, string? sql, Func<CallState, Task<string>> body)
+    /// <summary>
+    /// Runs <paramref name="body"/> under one deadline for the whole call, appends one audit line, then returns the
+    /// payload or throws the error. The body gets a token that ends at the deadline (<see cref="ServerConfig.TimeoutSeconds"/>
+    /// after the call started) or when <paramref name="cancellationToken"/>, the client's, is cancelled. SqlClient's
+    /// <c>CommandTimeout</c> limits each network read only; the deadline limits the call.
+    /// </summary>
+    private async Task<string> CompleteAsync(
+        string tool, string? sql, CancellationToken cancellationToken, Func<CallState, CancellationToken, Task<string>> body)
     {
         using var tracked = TrackCall();
         CallAuditMarker.Current?.MarkAudited();
@@ -368,9 +379,18 @@ internal sealed class ToolService(
         var call = new CallState { Sql = sql };
         string? payload = null;
         ToolFailure? failure = null;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(config.TimeoutSeconds));
         try
         {
-            payload = await body(call).ConfigureAwait(false);
+            payload = await body(call, deadline.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is not ToolRefusalException && deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // The deadline ended the call, not the client: answered and audited as Timeout, with the command
+            // timeout's text.
+            failure = ToolErrors.CallTimeout;
         }
         catch (Exception exception)
         {

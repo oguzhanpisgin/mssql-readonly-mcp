@@ -16,7 +16,7 @@ at the client library's default (SECURITY.md, "Known limits", "Idle sessions sta
 | `MSSQL_MCP_AUDIT_LOG` | none, required for the server | | Path of the audit file. Created with its folder if missing. Not needed by `check-login`. |
 | `MSSQL_MCP_MAX_ROWS` | 200 | 1 to 5000 | Most rows `run_query` returns. |
 | `MSSQL_MCP_MAX_CHARS` | 40000 | 1000 to 45000 | Most characters in one tool result. Claude Code saves a text result above 50,000 characters to a file instead of showing it, so the ceiling stays below that. |
-| `MSSQL_MCP_TIMEOUT_SECONDS` | 30 | 1 to 300 | Command timeout of every command, the startup check included. Connecting uses the connection string's `Connect Timeout` (default 15 s). |
+| `MSSQL_MCP_TIMEOUT_SECONDS` | 30 | 1 to 300 | Time limit of every call, counted from its start: it covers opening the connection, the session settings and the query with its reading, and is also the command timeout of every command, the startup check included. A call the limit stops is answered and audited as `Timeout`, unless the client cancelled it first; a call that finished reading before the limit keeps its answer. Starting and rolling back the transaction, and cancelling and closing the reader, are synchronous and have no limit of their own; an `xml` value is read synchronously, and the limit is checked between those reads. Connecting is also bounded by the connection string's `Connect Timeout` (default 15 s). |
 | `MSSQL_MCP_LOCK_TIMEOUT_MS` | 5000 | 0 to 300000 | Value of `SET LOCK_TIMEOUT` for every session. |
 
 ## Commands and exit codes
@@ -65,16 +65,21 @@ both texts (that line and the `check-login` output) a finding names at most ten 
 widens reading, for example `UNMASK`. The pass line reports the outcome of the checks in ["What `check-login` refuses"](login-check.md), not a proof that the login cannot write.
 
 At end of input the MCP SDK keeps the server running until every call in flight has ended on its own; each writes
-its audit line, then the audit file closes and the process exits 0. Opening a call's connection is bounded by the
-connect timeout, and the session settings and the query by the command timeout; the server sets no timeout of its
-own for the rollback. Only the connect bound is exercised by a test. Tests: `StdioServerTests.cs`
+its audit line, then the audit file closes and the process exits 0. Each call ends at its time limit
+(`MSSQL_MCP_TIMEOUT_SECONDS`) plus the time to finish a synchronous read already under way (part of an `xml` value,
+for example), cancel the command, close the reader and roll back; the time limit does not stop these steps (measured
+on SQL Server 2022: 0.1 to 0.3 s past the limit), and starting the transaction is not stopped by it either (see
+`MSSQL_MCP_TIMEOUT_SECONDS` above). No test holds a call past the drain window (`MSSQL_MCP_TIMEOUT_SECONDS` plus
+10 seconds, below). Tests: `StdioServerTests.cs`
 (`Client_closing_stdin_after_a_call_ends_the_process_with_exit_0_and_no_error_line`,
 `Call_in_flight_when_stdin_closes_writes_its_audit_line_before_the_process_ends`,
-`Call_still_running_at_end_of_input_holds_the_process_past_the_drain_window_and_is_audited`) and `AuditTests.cs`
+`Call_stalled_at_connection_open_ends_at_the_time_limit_of_the_call_and_is_audited`), `CallLimitTests.cs`
+(`Rows_that_arrive_slowly_end_at_the_time_limit_of_the_call_as_a_timeout`) and `AuditTests.cs`
 (`Shutdown_drain_waits_for_a_call_in_flight_before_the_log_closes`). On Ctrl+C or a termination signal the host's
 own stop runs first (its shutdown timeout, 30 s by default; not tested), then the server waits at most
 `MSSQL_MCP_TIMEOUT_SECONDS` plus 10 seconds for calls still running; if any remain, it writes one stderr line with
-their number and exits 6 (`Program.cs`). Those calls return no data and may have no audit line. Ctrl+C is not
+their number and exits 6 (`Program.cs`). Those calls return no data and may have no audit line. A call can still be
+running then only through a step the time limit does not stop (listed above); no test produces exit 6. Ctrl+C is not
 covered by a test, so whether it cancels calls in flight (they would be audited as `Cancelled`) is not known here.
 
 ## Tools
@@ -156,7 +161,7 @@ From `src/MssqlReadOnlyMcp/ResultPayload.cs` and `src/MssqlReadOnlyMcp.Gate/Gate
   the audit line.
 - `list_tables` and `describe_table` keep their answer within `MSSQL_MCP_MAX_CHARS` as well; items that would pass it
   are left out and `truncated_reason` is `max_chars` (`ErpScaleTests.cs`, `SchemaToolTests.cs`).
-- Time: `MSSQL_MCP_TIMEOUT_SECONDS` per command, `MSSQL_MCP_LOCK_TIMEOUT_MS` per lock wait.
+- Time: `MSSQL_MCP_TIMEOUT_SECONDS` per call, and per command; `MSSQL_MCP_LOCK_TIMEOUT_MS` per lock wait.
 
 ## Error reasons
 
@@ -200,7 +205,7 @@ Other errors, text `<reason>: ...`:
 
 | Reason | Meaning |
 | --- | --- |
-| `Timeout` | The command timeout passed (SQL Server error -2). |
+| `Timeout` | The call's time limit or the command timeout passed. The text names SQL Server error -2 in both cases, even when SQL Server raised no error (a connection that did not open in time), and also when a server error arrived after the limit. |
 | `LockTimeout` | A lock wait passed the lock timeout (error 1222). |
 | `DeadlockVictim` | SQL Server chose this query as the deadlock victim (error 1205). |
 | `PermissionDenied` | SQL Server refused the login (error 229). |

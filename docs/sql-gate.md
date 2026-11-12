@@ -55,6 +55,16 @@ Anything not listed is refused by design, including a built-in that a later SQL 
 If you need a function that is not listed, open an issue with the query you wanted to run. A name is added only
 after it is checked not to reach outside the query or expose metadata or security material.
 
+## Members of CLR user-defined types
+
+Reading a field or property of a CLR user-defined type written as a column name (`t.Col.X`), and `CAST` or
+`CONVERT` of such a column to text, pass the gate; a property getter and the conversions run the type's code
+(`ToString`). SQL Server asks `EXECUTE` on the type for each of them: a reader without that right got error 229, and
+the login check names a direct `EXECUTE` grant on a CLR type as a finding. The instance method calls tried
+(`t.Col.ToString()`, `t.Col.Twice()`) are refused by the gate (`DisallowedSyntax`); the raw value is returned
+undecoded as `<unsupported value of type ...>`. Measured for the test suite's one native-format type on SQL Server
+2019, 2022 and 2025 (`tests/MssqlReadOnlyMcp.IntegrationTests/ClrTypeMemberTests.cs`).
+
 ## Syntax newer than SQL Server 2019
 
 - On SQL Server 2019 some allowed syntax is newer than the server: `IS [NOT] DISTINCT FROM`, the `WINDOW` clause,

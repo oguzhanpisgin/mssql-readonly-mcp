@@ -49,7 +49,10 @@ Each promise names the test files that check it. Test files are under `tests/`.
 ## Result caps
 
 - **Results are capped by rows, characters and time.** Proven by `MssqlReadOnlyMcp.IntegrationTests/CapsTests.cs`
-  (row cap, character cap, cell cut, command timeout, lock timeout).
+  (row cap, character cap, cell cut, time limit, lock timeout) and `CallLimitTests.cs` (time limit per call, also
+  when rows arrive slowly; a row that cannot fit the character cap is not held whole in memory, but the cells read
+  and the rest of the row still cross the network). The steps that have no time limit of their own are listed under
+  `MSSQL_MCP_TIMEOUT_SECONDS` in ["Configuration"](reference.md#configuration).
 
 ## Lock timeout and deadlock priority
 
@@ -60,4 +63,4 @@ Each promise names the test files that check it. Test files are under `tests/`.
   The deadlock priority is proven by `ValueTypeTests.cs`
   (`Deadlock_victim_is_reported_as_DeadlockVictim_and_the_next_call_works`): against a session at the default
   priority, the reader is the victim, and the next call works. Limit: while a query runs under the default READ
-  COMMITTED level, its own shared locks can still make a writer wait, up to the command timeout.
+  COMMITTED level, its own shared locks can still make a writer wait, up to the time limit of the call.

@@ -54,6 +54,16 @@ It prints `Audit file <name>: <N> lines verified.` and exits 0, or names the fir
 also verifies the whole file each time it starts, so start time grows with the file, and will not start on a file
 that fails.
 
+**After a failed write.** A write that fails part-way (for example on a full disk) can leave bytes after the last
+newline. The log then refuses every later line too (`AuditLogTests.cs`, `Failed_append_throws_and_poisons`), and the
+server opens it only at start (`Program.cs`), so later calls fail with `AuditUnavailable` and no data until the server
+restarts. At the next start the server finds `PartialLine` on that line and writes nothing (`AuditLogTests.cs`,
+`Torn_write_makes_reopen_fail`, `Reopen_refuses_a_bad_file_and_writes_nothing`) and exits 2 (`Program.cs`), and
+`verify-audit` reports the same reason (`AuditVerifierTests.cs`, `Partial_extra_line_is_found`) and exits 1. To
+start again, keep a copy of the file, then remove only the bytes after the last newline; the file must then verify,
+and the server continues the chain from the last whole line. No test runs that removal: what is tested is that a file
+that verifies reopens and continues its chain (`Reopen_continues_the_chain`).
+
 Limits, quoted from the `AuditLog` class documentation (`src/MssqlReadOnlyMcp.Audit/AuditLog.cs`):
 
 > Honest limits: the hash chain shows edits, deletions and reordering of lines inside the file. It does not show

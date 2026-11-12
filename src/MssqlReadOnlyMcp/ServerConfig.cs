@@ -12,7 +12,7 @@ internal sealed class ConfigException(string message) : Exception(message);
 /// <param name="AuditLogPath">Path of the audit file; empty when the command does not need it.</param>
 /// <param name="MaxRows">Row cap for <c>run_query</c>.</param>
 /// <param name="MaxChars">Character cap for one tool result.</param>
-/// <param name="TimeoutSeconds">Command timeout.</param>
+/// <param name="TimeoutSeconds">Time limit of every call, and the command timeout of every command.</param>
 /// <param name="LockTimeoutMs">Value of <c>SET LOCK_TIMEOUT</c>.</param>
 internal sealed record ServerConfig(
     string ConnectionString,

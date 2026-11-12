@@ -3,6 +3,12 @@
 This page covers what the startup login check refuses, what it allows and what it does not inspect; the
 [README](../README.md#3-check-the-login) shows how to run it.
 
+The server runs the check once, when it starts (`src/MssqlReadOnlyMcp/Program.cs`, `ServerStartup.cs`); nothing
+checks again later. Rights granted afterwards to the login, to a role it is in or to `public` are not seen until
+the server restarts, and until then the gate is the only layer against them. The server sets
+`ApplicationIntent=ReadOnly` (`ServerConfig.cs`), so behind an availability group listener with read-only routing
+the check and later calls could reach different replicas, whose server-level rights can differ; this is not tested.
+
 The check runs one query (`src/MssqlReadOnlyMcp/PermissionCheck.cs`) and refuses the login when it finds any of:
 
 - an effective server permission other than `CONNECT SQL` and `VIEW ANY DATABASE`;

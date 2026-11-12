@@ -34,7 +34,9 @@ who can write the audit file. They can do more than this server can stop.
    `INFORMATION_SCHEMA` (listed in `sys.system_objects`) are not asked one by one; a grant on one is found from
    `sys.database_permissions`, except `public`'s `EXECUTE` in `master`, which a default installation holds on more
    than 1,600 of them. No other database (`tempdb` included) is inspected; only the gate stops writes through those
-   and through a `public` grant of that kind.
+   and through a `public` grant of that kind. The check runs once, at start: rights granted afterwards to the login,
+   its roles or `public` are not seen until the server restarts. With an availability group, whether the check and
+   later calls reach different replicas is not tested (`docs/login-check.md`).
 
 `run_query` also runs inside a transaction that is always rolled back. That is not counted as a layer: a rollback
 does not undo every effect. For example, with `AUTO_CREATE_STATISTICS ON` (the database default) a read can make
@@ -151,7 +153,10 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
   printed (the NULL path in the query has no test).
 - `AuditTests`: one audit line per call plus one startup line, no data when the audit file fails, a `TooLong` text
   is not recorded, and shutdown waits for a call in flight.
-- `CapsTests`: row cap, character cap, cell cut, command timeout, lock timeout.
+- `CapsTests`: row cap, character cap, cell cut, time limit, lock timeout.
+- `CallLimitTests`: time limit per call (rows that arrive slowly end at it as `Timeout`; a client cancel stays
+  `Cancelled`); a row that cannot fit the character cap is not held whole in memory, but the cells read and the rest
+  of the row still cross the network.
 - `ValueTypeTests`: xml as text with the cell cut, `hierarchyid` as a placeholder, binary counting up to 1 MiB and
   `long_value` past it, the character cap with a `long_value` ending, `QUOTED_IDENTIFIER ON` and `NOCOUNT OFF`, the
   reader as deadlock victim; text sent past the gate as a `db_datawriter` member fails as `RowsChanged` or
@@ -173,10 +178,10 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
   the client library rejects; a second server on the same audit file; calls the SDK rejects are audited and logged,
   also when it cannot read their parameters
   (`Call_whose_parameters_the_sdk_cannot_read_is_audited_before_its_error_answer`);
-  end of input exits 0, and a call in flight at end of input, even one that outlasts the drain window
-  (`MSSQL_MCP_TIMEOUT_SECONDS` + 10 s), holds the process until it ends and writes its audit line; the login
-  script; `sys.databases` visibility with and without `DENY VIEW ANY DATABASE`; no password in any result, stderr
-  line or audit file.
+  end of input exits 0, a call in flight at end of input holds the process until it ends and writes its audit line,
+  and a call stalled at the connection open ends at its time limit as `Timeout`, inside the drain window
+  (`MSSQL_MCP_TIMEOUT_SECONDS` + 10 s); the login script; `sys.databases` visibility with and without
+  `DENY VIEW ANY DATABASE`; no password in any result, stderr line or audit file.
 
 ## Where the parser and the server read text differently
 
@@ -194,6 +199,13 @@ The same 335 texts are the permanent test `ParserVersusServerLexerTests`
 (`tests/MssqlReadOnlyMcp.IntegrationTests/ParserVersusServerLexerCases.cs`), which also runs on SQL Server 2025.
 The test asserts the split exactly, the same on 2019, 2022 and 2025: 269 refused by the gate, 61 allowed and read
 the same by the server, 5 allowed and refused by the server.
+
+A separate test (`Look_alike_end_inside_a_comment_a_string_or_an_identifier_ends_nothing_on_the_server`, 17 texts)
+puts a character that only looks like an end before a second statement: U+FF0A U+FF0F, U+2217 U+2215, U+2731 U+2044,
+U+FE61 U+FF0F and part-ASCII pairs inside a block comment, and also as the inner or outer end of a nested comment;
+U+2019, U+02BC and U+FF07 inside a string literal and an `N'...'` literal; U+FF3D inside a bracketed name; U+FF02
+and U+201D inside a double-quoted name. On SQL Server 2019, 2022 and 2025 the gate allows all 17 and the server
+reads each as one statement with the parser's column name.
 
 | Class | SQL Server | ScriptDom | Gate |
 | --- | --- | --- | --- |
@@ -228,7 +240,9 @@ Limits of this measurement:
   refuses only when it is written in the query text. The login check asks for rights on a synonym itself but does
   not follow synonyms, views or computed columns to what they read. None of this reading has a test here. Grant
   SELECT only on objects whose content you accept the assistant reading, and check synonyms, views and computed
-  columns before you grant them.
+  columns before you grant them. Reading a field or property of a CLR user-defined type (`t.Col.X`), and `CAST` or
+  `CONVERT` of such a column to text, pass the gate; for the test suite's one native-format type, SQL Server asked
+  `EXECUTE` on the type for each (`docs/sql-gate.md`, "Members of CLR user-defined types").
 - **Catalogue views are ordinary names to the gate.** `sys.objects` or `INFORMATION_SCHEMA.TABLES` pass the gate as
   two-part names. SQL Server's metadata visibility shows the reader the user objects it holds a permission on, plus
   the names of objects that ship with SQL Server (`is_ms_shipped`); a user table without a grant is not in
@@ -245,17 +259,22 @@ Limits of this measurement:
   spelled name to the same object; in a `run_query` text, full-width letters and some other characters were not
   measured (a `describe_table` name with a full-width letter: `docs/reference.md`, "Tools"). `sql` and
   `sql_sha256` are the authoritative record. A `TooLong` text and a refused name argument are not recorded.
-- **CPU, memory and tempdb use are bounded only by the command timeout.** A heavy join or sort can load the server
-  until the timeout ends it. The server does not limit how many calls run at once. The server-side answer is
-  Resource Governor: put the login in a workload group with its own limits (check that your SQL Server edition
-  offers it).
+- **CPU, memory and tempdb use are bounded by the time limit of the call.** It counts from the start of the call
+  and covers opening the connection, the session settings, and the query and its reading; each command also keeps it
+  as its command timeout. When it passes, a synchronous read already under way (part of an `xml` value, for example)
+  finishes, then the command is cancelled, the reader closed and, for `run_query`, the transaction rolled back; these
+  steps and the transaction start are synchronous and the time limit does not stop them (measured on SQL Server 2022:
+  0.1 to 0.3 s past the limit). A heavy join or sort can load the server until then.
+  The server does not limit how many calls run at once. The server-side answer is Resource Governor: put the login
+  in a workload group with its own limits (check that your SQL Server edition offers it).
 - **Long values still cross the network.** A value that ends the result as `long_value` is never held whole, but
   SQL Server still sends it in full (`docs/reference.md`, "Result limits"; `LargeValueTests`). That read limit holds
   for text and binary values. An xml value with one very large text node, or a large CLR value (`geography`,
   `geometry`, `hierarchyid`), may be read whole into memory by the client library before it is cut or named. Not
   measured here.
 - **Locks.** The session waits at most the lock timeout and runs at low deadlock priority; under READ COMMITTED its
-  own shared locks can still make a writer wait, up to the command timeout (`docs/promises.md`, "What it promises").
+  own shared locks can still make a writer wait, up to the time limit of the call (`docs/promises.md`, "What it
+  promises").
 - **Syntax newer than the server.** The gate parses with `TSql170Parser` (the package's parser for version 17.0;
   the newer `TSql180Parser` is not used). On SQL Server 2019, syntax added in 2022 passes the gate and fails on the
   server with a syntax error, or with error 195 for `DATETRUNC`, `GREATEST` and `LEAST` (`DifferentialTests`,
@@ -267,7 +286,10 @@ Limits of this measurement:
   `AuditLog` class documentation and in `docs/audit-log.md`.
 - **Data leaves the building.** Rows, table and column names, and SQL Server error text (for classes 11 to 16,
   under any reason, the server's message, which can name objects or quote a value) go to the AI vendor. Read-only
-  does not change that. Choose what the login may read with `scripts/create-readonly-login.sql`.
+  does not change that. A login that fails after start (for example, the reader's password was changed) is answered
+  with SQL Server's message, which names the login (error 18456); error 4060 names the database. Neither holds the
+  password or the connection string (`ToolErrors.cs` adds only the number, class and line; no test covers a failed
+  login after start). Choose what the login may read with `scripts/create-readonly-login.sql`.
 - **Secrets on the client side.** The connection string lives in the client's environment or configuration file.
   The server never prints or audits it, but anyone who can read that environment or file can read the password.
 - **Idle sessions stay open.** The server does not change the client library's connection pooling, so idle

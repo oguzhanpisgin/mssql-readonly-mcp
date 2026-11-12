@@ -45,6 +45,12 @@ internal static class ToolErrors
             : $"{reason}: refused by the read-only gate; {detail}");
     }
 
+    /// <summary>
+    /// The failure for a call its own deadline ended: the same reason and text as SqlClient's own command timeout
+    /// (error -2, class 11, line 0), so a timeout reads the same whichever bound ended the call.
+    /// </summary>
+    public static readonly ToolFailure CallTimeout = new("error", "Timeout", "Timeout: SQL Server error -2, class 11, line 0");
+
     /// <summary>A refusal for an invalid argument.</summary>
     public static ToolFailure InvalidArgument(string message) => new("error", "InvalidArgument", $"InvalidArgument: {message}");
 

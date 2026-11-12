@@ -158,4 +158,31 @@ internal static class ParserVersusServerLexerCases
         yield return new LexerCase("U2", "SELECT 1 /\u200B* x */ SELECT 2", true);
         yield return new LexerCase("U3", "SELECT 1 --\u2028SELECT 2", true);
     }
+
+    /// <summary>
+    /// Look-alike ends (code review C-5), kept apart from <see cref="Cases"/> so that the counts quoted from that list
+    /// stay as they are. Each text holds, inside a block comment, a string literal or a quoted identifier, a character
+    /// that looks like the end of it, followed by a second statement with the marker column <c>hidden</c>; if the
+    /// server ended the comment, string or identifier there, that statement would run. The first column is named.
+    /// </summary>
+    public static readonly IReadOnlyList<LexerCase> LookAlikeEndCases =
+    [
+        new("L01", "SELECT 1 AS shown /* \uFF0A\uFF0F ; SELECT 2 AS hidden --*/", false),
+        new("L02", "SELECT 1 AS shown /* \u2217\u2215 ; SELECT 2 AS hidden --*/", false),
+        new("L03", "SELECT 1 AS shown /* \u2731\u2044 ; SELECT 2 AS hidden --*/", false),
+        new("L04", "SELECT 1 AS shown /* *\uFF0F ; SELECT 2 AS hidden --*/", false),
+        new("L05", "SELECT 1 AS shown /* \uFF0A/ ; SELECT 2 AS hidden --*/", false),
+        new("L06", "SELECT 1 AS shown /* \uFE61\uFF0F ; SELECT 2 AS hidden --*/", false),
+        new("L07", "SELECT 1 AS shown /* /* \uFF0A\uFF0F */ ; SELECT 2 AS hidden --*/", false),
+        new("L08", "SELECT 1 AS shown /* /* */ \uFF0A\uFF0F ; SELECT 2 AS hidden --*/", false),
+        new("L09", "SELECT 'a\u2019 ; SELECT 2 AS hidden --' AS shown", false),
+        new("L10", "SELECT 'a\u02BC ; SELECT 2 AS hidden --' AS shown", false),
+        new("L11", "SELECT 'a\uFF07 ; SELECT 2 AS hidden --' AS shown", false),
+        new("L12", "SELECT N'a\u2019 ; SELECT 2 AS hidden --' AS shown", false),
+        new("L13", "SELECT N'a\u02BC ; SELECT 2 AS hidden --' AS shown", false),
+        new("L14", "SELECT N'a\uFF07 ; SELECT 2 AS hidden --' AS shown", false),
+        new("L15", "SELECT 1 AS [a\uFF3D ; SELECT 2 AS hidden --]", false),
+        new("L16", "SELECT 1 AS \"a\uFF02 ; SELECT 2 AS hidden --\"", false),
+        new("L17", "SELECT 1 AS \"a\u201D ; SELECT 2 AS hidden --\"", false),
+    ];
 }
