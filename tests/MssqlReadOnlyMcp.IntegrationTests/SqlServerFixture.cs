@@ -117,12 +117,180 @@ public sealed class SqlServerFixture : IAsyncLifetime
     /// <summary>In <see cref="SalesDatabase"/>: a table with 40 columns, whose description passes a 1000-character cap.</summary>
     public const string WideTable = "dbo.WideTable";
 
-    /// <summary>Logins that can write or act as someone else in other ways than the five above; each is refused.</summary>
+    /// <summary>In <see cref="Database"/>: a Service Broker queue that holds one message, bound to <see cref="InvoiceService"/>.</summary>
+    public const string InvoiceQueue = "dbo.InvoiceQueue";
+
+    /// <summary>In <see cref="Database"/>: a Service Broker service on <see cref="InvoiceQueue"/> (contract DEFAULT).</summary>
+    public const string InvoiceService = "InvoiceService";
+
+    /// <summary>In <see cref="Database"/>: a role holding SEND on <see cref="InvoiceService"/>.</summary>
+    public const string ServiceSendersRole = "service_senders";
+
+    /// <summary>In <see cref="Database"/>: a certificate (private key protected by the database master key), owned by dbo.</summary>
+    public const string SigningCertificate = "ShopSigning";
+
+    /// <summary>In <see cref="Database"/>: a certificate owned by <see cref="CertificateOwnerLogin"/>'s user.</summary>
+    public const string OwnedCertificate = "OwnedCertificate";
+
+    /// <summary>In <see cref="Database"/>: an RSA asymmetric key (private key protected by the database master key).</summary>
+    public const string ShopAsymmetricKey = "ShopAsymmetric";
+
+    /// <summary>In <see cref="Database"/>: an AES symmetric key encrypted by <see cref="SigningCertificate"/>.</summary>
+    public const string ShopSymmetricKey = "ShopSymmetric";
+
+    /// <summary>In <see cref="Database"/>: the user assembly <see cref="ClrTestAssembly"/> writes, trusted by hash.</summary>
+    public const string TypesAssembly = "ShopTypes";
+
+    /// <summary>In <see cref="Database"/>: a CLR user-defined type from <see cref="TypesAssembly"/>.</summary>
+    public const string ClrType = "dbo.Point";
+
+    /// <summary>In <see cref="Database"/>: a table type and an alias type, neither of which runs code.</summary>
+    public const string TableType = "dbo.IdList";
+    public const string AliasType = "dbo.Phone";
+
+    /// <summary>In <see cref="Database"/>: an XML schema collection.</summary>
+    public const string OrderNotesSchema = "dbo.OrderNotes";
+
+    /// <summary>In <see cref="Database"/>: a full-text catalog (creating one does not need Full-Text Search installed).</summary>
+    public const string ShopCatalog = "ShopCatalog";
+
+    /// <summary>
+    /// A TRUSTWORTHY database with a Service Broker service owned by <see cref="ServiceSenderLogin"/>'s user and one
+    /// owned by <see cref="ClassReaderLogin"/>'s user, from which they begin dialogs to <see cref="InvoiceService"/>.
+    /// </summary>
+    public const string BrokerDatabase = "BrokerDb";
+
+    /// <summary>In <see cref="BrokerDatabase"/>: the services the two logins own.</summary>
+    public const string SenderOutboxService = "SenderOutbox";
+    public const string ReaderOutboxService = "ReaderOutbox";
+
+    /// <summary>SELECT on schema dbo plus RECEIVE on <see cref="InvoiceQueue"/>.</summary>
+    public const string QueueReceiverLogin = "mcp_queue_receiver";
+
+    /// <summary>SELECT on schema dbo plus SEND on <see cref="InvoiceService"/> (which SEND alone does not make visible).</summary>
+    public const string ServiceSenderLogin = "mcp_service_sender";
+
+    /// <summary>SELECT on schema dbo plus membership of <see cref="ServiceSendersRole"/>.</summary>
+    public const string ServiceRoleSenderLogin = "mcp_service_role_sender";
+
+    /// <summary>
+    /// SELECT on schema dbo plus SEND on <see cref="InvoiceService"/> twice: directly and through
+    /// <see cref="ServiceSendersRole"/>.
+    /// </summary>
+    public const string ServiceDoubleSenderLogin = "mcp_service_double_sender";
+
+    /// <summary>
+    /// In every database: a built-in Service Broker queue in schema dbo (<c>is_ms_shipped = 1</c>), the queue of the
+    /// built-in service <see cref="QueryNotificationService"/>.
+    /// </summary>
+    public const string ShippedQueue = "dbo.QueryNotificationErrorsQueue";
+
+    /// <summary>In every database: the built-in service on <see cref="ShippedQueue"/>.</summary>
+    public const string QueryNotificationService = "http://schemas.microsoft.com/SQL/Notifications/QueryNotificationService";
+
+    /// <summary>In every database: the built-in assembly (owner sys, <c>is_user_defined = 0</c>).</summary>
+    public const string ShippedAssembly = "Microsoft.SqlServer.Types";
+
+    /// <summary>SELECT on schema dbo plus RECEIVE on the built-in <see cref="ShippedQueue"/>.</summary>
+    public const string ShippedQueueReceiverLogin = "mcp_shipped_queue_receiver";
+
+    /// <summary>SELECT on schema dbo plus TAKE OWNERSHIP on the built-in <see cref="ShippedAssembly"/>.</summary>
+    public const string ShippedAssemblyTakerLogin = "mcp_shipped_assembly_taker";
+
+    /// <summary>
+    /// A database of its own, so that no other test login gains or loses anything: change data capture is enabled
+    /// in it (which adds the shipped <see cref="CdcHistoryTable"/>), and it holds a procedure and a table that
+    /// <c>sp_MS_marksystemobject</c> marks as shipped (<c>is_ms_shipped = 1</c>).
+    /// </summary>
+    public const string ShippedDatabase = "ShippedDb";
+
+    /// <summary>In <see cref="ShippedDatabase"/>: a table <see cref="MarkedProcedure"/> writes to.</summary>
+    public const string LedgerTable = "dbo.Ledger";
+
+    /// <summary>In <see cref="ShippedDatabase"/>: a procedure marked as shipped; it adds a row to <see cref="LedgerTable"/>.</summary>
+    public const string MarkedProcedure = "dbo.AddLedger";
+
+    /// <summary>In <see cref="ShippedDatabase"/>: a table marked as shipped.</summary>
+    public const string MarkedTable = "dbo.MarkedNotes";
+
+    /// <summary>In <see cref="ShippedDatabase"/>: a table change data capture adds, shipped.</summary>
+    public const string CdcHistoryTable = "cdc.ddl_history";
+
+    /// <summary>
+    /// In <see cref="ShippedDatabase"/>: SELECT on schema dbo plus EXECUTE on <see cref="MarkedProcedure"/> and INSERT,
+    /// DELETE on <see cref="MarkedTable"/>.
+    /// </summary>
+    public const string ShippedWriterLogin = "mcp_shipped_writer";
+
+    /// <summary>In <see cref="ShippedDatabase"/>: SELECT on schema dbo plus DELETE on <see cref="CdcHistoryTable"/>.</summary>
+    public const string CdcDeleterLogin = "mcp_cdc_deleter";
+
+    /// <summary>
+    /// SELECT on schema dbo in <see cref="ShippedDatabase"/>, <c>master</c> and <c>msdb</c>, nothing else: the plain
+    /// reader for databases the other logins have no user in.
+    /// </summary>
+    public const string PlainReaderLogin = "mcp_plain_reader";
+
+    /// <summary>A user-defined server role holding ALTER ANY LOGIN.</summary>
+    public const string LoginAdminsRole = "mcp_login_admins";
+
+    /// <summary>SELECT on schema dbo plus ALTER on the server role <see cref="LoginAdminsRole"/>.</summary>
+    public const string ServerRoleAltererLogin = "mcp_server_role_alterer";
+
+    /// <summary>In <see cref="Database"/>: an application role holding INSERT on dbo.Customers.</summary>
+    public const string ReportingAppRole = "reporting_app";
+
+    /// <summary>SELECT on schema dbo plus ALTER on the application role <see cref="ReportingAppRole"/>.</summary>
+    public const string AppRoleAltererLogin = "mcp_app_role_alterer";
+
+    /// <summary>SELECT on schema dbo plus ALTER on <see cref="InvoiceService"/>.</summary>
+    public const string ServiceAltererLogin = "mcp_service_alterer";
+
+    /// <summary>SELECT on schema dbo plus CONTROL on <see cref="SigningCertificate"/>.</summary>
+    public const string CertificateControllerLogin = "mcp_certificate_controller";
+
+    /// <summary>SELECT on schema dbo; its user owns <see cref="OwnedCertificate"/>.</summary>
+    public const string CertificateOwnerLogin = "mcp_certificate_owner";
+
+    /// <summary>SELECT on schema dbo plus ALTER on <see cref="ShopAsymmetricKey"/>.</summary>
+    public const string AsymmetricKeyAltererLogin = "mcp_asymmetric_key_alterer";
+
+    /// <summary>SELECT on schema dbo plus TAKE OWNERSHIP on <see cref="ShopSymmetricKey"/>.</summary>
+    public const string SymmetricKeyTakerLogin = "mcp_symmetric_key_taker";
+
+    /// <summary>SELECT on schema dbo plus ALTER on <see cref="TypesAssembly"/>.</summary>
+    public const string AssemblyAltererLogin = "mcp_assembly_alterer";
+
+    /// <summary>SELECT on schema dbo plus EXECUTE on <see cref="ClrType"/>.</summary>
+    public const string ClrTypeUserLogin = "mcp_clr_type_user";
+
+    /// <summary>SELECT on schema dbo plus ALTER on <see cref="OrderNotesSchema"/>.</summary>
+    public const string XmlSchemaAltererLogin = "mcp_xml_schema_alterer";
+
+    /// <summary>SELECT on schema dbo plus CONTROL on <see cref="ShopCatalog"/>.</summary>
+    public const string CatalogControllerLogin = "mcp_catalog_controller";
+
+    /// <summary>
+    /// SELECT on schema dbo plus every right on the classes above that the check allows: VIEW DEFINITION on the queue
+    /// and the service; REFERENCES and VIEW DEFINITION on both keys, the certificate, the assembly, the CLR type and
+    /// the catalog; EXECUTE, REFERENCES and VIEW DEFINITION on the table type, the alias type and the XML schema
+    /// collection. It passes.
+    /// </summary>
+    public const string ClassReaderLogin = "mcp_class_reader";
+
+    /// <summary>
+    /// Further logins: each holds one right beyond reading (refused), except <see cref="ClassReaderLogin"/>, which
+    /// holds only rights the check allows.
+    /// </summary>
     public static readonly IReadOnlyList<string> ExtraLogins =
     [
         ColumnUpdaterLogin, ImpersonatorLogin, RoleAdminLogin, SecurityAdminLogin, ProcedureRunnerLogin, SequenceUserLogin,
         DenyWriterLogin, QuotedCreatorLogin, TracerLogin, BackupLogin, UnmaskLogin, RoleTakerLogin, NoDatabaseListLogin,
-        SynonymUpdaterLogin,
+        SynonymUpdaterLogin, QueueReceiverLogin, ServiceSenderLogin, ServiceRoleSenderLogin, ServiceAltererLogin,
+        CertificateControllerLogin, CertificateOwnerLogin, AsymmetricKeyAltererLogin, SymmetricKeyTakerLogin,
+        AssemblyAltererLogin, ClrTypeUserLogin, XmlSchemaAltererLogin, CatalogControllerLogin, ClassReaderLogin,
+        ServiceDoubleSenderLogin, ShippedQueueReceiverLogin, ShippedAssemblyTakerLogin, ShippedWriterLogin,
+        CdcDeleterLogin, PlainReaderLogin, ServerRoleAltererLogin, AppRoleAltererLogin,
     ];
 
     /// <summary>Every seeded user table, with the database it lives in.</summary>
@@ -157,6 +325,12 @@ public sealed class SqlServerFixture : IAsyncLifetime
     /// <summary>The password of each of <see cref="ExtraLogins"/>.</summary>
     public IReadOnlyDictionary<string, string> ExtraPasswords { get; } = ExtraLogins.ToDictionary(l => l, _ => NewPassword());
 
+    /// <summary>The password of <see cref="Database"/>'s database master key.</summary>
+    public string MasterKeyPassword { get; } = NewPassword();
+
+    /// <summary>The password of the application role <see cref="ReportingAppRole"/>.</summary>
+    public string AppRolePassword { get; } = NewPassword();
+
     /// <summary>The image this run uses.</summary>
     public string Image { get; } = Environment.GetEnvironmentVariable(ImageVariable) is { Length: > 0 } image ? image : DefaultImage;
 
@@ -184,7 +358,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
     /// <summary>Every password of this run, for the leak checks.</summary>
     public IReadOnlyList<string> Secrets =>
         [SaPassword, ReaderPassword, DataReaderPassword, UpdaterPassword, WriterPassword, OwnerPassword, ErpReaderPassword,
-         ScriptLoginPassword, .. ExtraPasswords.Values];
+         ScriptLoginPassword, MasterKeyPassword, AppRolePassword, .. ExtraPasswords.Values];
 
     /// <summary><paramref name="name"/> as a bracketed T-SQL identifier.</summary>
     public static string Bracket(string name) => "[" + name.Replace("]", "]]", StringComparison.Ordinal) + "]";
@@ -384,10 +558,159 @@ public sealed class SqlServerFixture : IAsyncLifetime
         return $"CREATE TABLE dbo.WideTable (Id int NOT NULL PRIMARY KEY, {string.Join(", ", columns)});";
     }
 
+    /// <summary>
+    /// The securables outside schemas, objects and columns that the permission check asks about (queue, service,
+    /// certificate, keys, assembly, types, XML schema collection, full-text catalog), one login per right, and the
+    /// broker database the SEND test begins its dialogs from. Runs after the logins exist.
+    /// </summary>
+    private IEnumerable<(string Database, string Sql)> ClassSeedBatches()
+    {
+        // A user assembly needs CLR enabled to run and, under "clr strict security", to be trusted by its SHA-512 hash.
+        var assembly = ClrTestAssembly.Build(TypesAssembly);
+        var hash = Convert.ToHexString(SHA512.HashData(assembly));
+        yield return ("master", $"""
+            EXEC sys.sp_configure N'clr enabled', 1;
+            RECONFIGURE;
+            DECLARE @hash varbinary(64) = 0x{hash};
+            EXEC sys.sp_add_trusted_assembly @hash = @hash, @description = N'{TypesAssembly} (permission check tests)';
+            """);
+        yield return (Database, $"CREATE ASSEMBLY [{TypesAssembly}] FROM 0x{Convert.ToHexString(assembly)} WITH PERMISSION_SET = SAFE;");
+        yield return (Database, $"CREATE TYPE {ClrType} EXTERNAL NAME [{TypesAssembly}].[{ClrTestAssembly.TypeName}];");
+
+        // CREATE FULLTEXT CATALOG cannot run inside a transaction, so it has a batch of its own.
+        yield return (Database, $"CREATE FULLTEXT CATALOG [{ShopCatalog}];");
+
+        var users = new StringBuilder();
+        foreach (var login in new[]
+        {
+            QueueReceiverLogin, ServiceSenderLogin, ServiceRoleSenderLogin, ServiceAltererLogin, CertificateControllerLogin,
+            CertificateOwnerLogin, AsymmetricKeyAltererLogin, SymmetricKeyTakerLogin, AssemblyAltererLogin, ClrTypeUserLogin,
+            XmlSchemaAltererLogin, CatalogControllerLogin, ClassReaderLogin, ServiceDoubleSenderLogin,
+            ShippedQueueReceiverLogin, ShippedAssemblyTakerLogin,
+        })
+        {
+            users.Append($"CREATE USER [{login}] FOR LOGIN [{login}];\nGRANT SELECT ON SCHEMA::dbo TO [{login}];\n");
+        }
+
+        yield return (Database, $"""
+            {users}
+            CREATE MASTER KEY ENCRYPTION BY PASSWORD = N'{MasterKeyPassword}';
+            CREATE CERTIFICATE [{SigningCertificate}] WITH SUBJECT = N'Permission check test';
+            CREATE CERTIFICATE [{OwnedCertificate}] AUTHORIZATION [{CertificateOwnerLogin}] WITH SUBJECT = N'Owned by a test login';
+            CREATE ASYMMETRIC KEY [{ShopAsymmetricKey}] WITH ALGORITHM = RSA_2048;
+            CREATE SYMMETRIC KEY [{ShopSymmetricKey}] WITH ALGORITHM = AES_256 ENCRYPTION BY CERTIFICATE [{SigningCertificate}];
+            CREATE TYPE {TableType} AS TABLE (Id int NOT NULL);
+            CREATE TYPE {AliasType} FROM varchar(20) NULL;
+            CREATE XML SCHEMA COLLECTION {OrderNotesSchema} AS
+                N'<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"><xsd:element name="note" type="xsd:string"/></xsd:schema>';
+            CREATE QUEUE {InvoiceQueue};
+            CREATE SERVICE [{InvoiceService}] ON QUEUE {InvoiceQueue} ([DEFAULT]);
+            DECLARE @dialog uniqueidentifier;
+            BEGIN DIALOG @dialog FROM SERVICE [{InvoiceService}] TO SERVICE N'{InvoiceService}' ON CONTRACT [DEFAULT] WITH ENCRYPTION = OFF;
+            SEND ON CONVERSATION @dialog (N'invoice 1');
+            CREATE ROLE [{ServiceSendersRole}];
+
+            GRANT RECEIVE ON {InvoiceQueue} TO [{QueueReceiverLogin}];
+            GRANT SEND ON SERVICE::[{InvoiceService}] TO [{ServiceSenderLogin}];
+            GRANT SEND ON SERVICE::[{InvoiceService}] TO [{ServiceSendersRole}];
+            ALTER ROLE [{ServiceSendersRole}] ADD MEMBER [{ServiceRoleSenderLogin}];
+            GRANT SEND ON SERVICE::[{InvoiceService}] TO [{ServiceDoubleSenderLogin}];
+            ALTER ROLE [{ServiceSendersRole}] ADD MEMBER [{ServiceDoubleSenderLogin}];
+            GRANT RECEIVE ON {ShippedQueue} TO [{ShippedQueueReceiverLogin}];
+            GRANT TAKE OWNERSHIP ON ASSEMBLY::[{ShippedAssembly}] TO [{ShippedAssemblyTakerLogin}];
+            GRANT ALTER ON SERVICE::[{InvoiceService}] TO [{ServiceAltererLogin}];
+            GRANT CONTROL ON CERTIFICATE::[{SigningCertificate}] TO [{CertificateControllerLogin}];
+            GRANT ALTER ON ASYMMETRIC KEY::[{ShopAsymmetricKey}] TO [{AsymmetricKeyAltererLogin}];
+            GRANT TAKE OWNERSHIP ON SYMMETRIC KEY::[{ShopSymmetricKey}] TO [{SymmetricKeyTakerLogin}];
+            GRANT ALTER ON ASSEMBLY::[{TypesAssembly}] TO [{AssemblyAltererLogin}];
+            GRANT EXECUTE ON TYPE::{ClrType} TO [{ClrTypeUserLogin}];
+            GRANT ALTER ON XML SCHEMA COLLECTION::{OrderNotesSchema} TO [{XmlSchemaAltererLogin}];
+            GRANT CONTROL ON FULLTEXT CATALOG::[{ShopCatalog}] TO [{CatalogControllerLogin}];
+
+            GRANT VIEW DEFINITION ON {InvoiceQueue} TO [{ClassReaderLogin}];
+            GRANT VIEW DEFINITION ON SERVICE::[{InvoiceService}] TO [{ClassReaderLogin}];
+            GRANT REFERENCES, VIEW DEFINITION ON CERTIFICATE::[{SigningCertificate}] TO [{ClassReaderLogin}];
+            GRANT REFERENCES, VIEW DEFINITION ON ASYMMETRIC KEY::[{ShopAsymmetricKey}] TO [{ClassReaderLogin}];
+            GRANT REFERENCES, VIEW DEFINITION ON SYMMETRIC KEY::[{ShopSymmetricKey}] TO [{ClassReaderLogin}];
+            GRANT REFERENCES, VIEW DEFINITION ON ASSEMBLY::[{TypesAssembly}] TO [{ClassReaderLogin}];
+            GRANT REFERENCES, VIEW DEFINITION ON TYPE::{ClrType} TO [{ClassReaderLogin}];
+            GRANT EXECUTE, REFERENCES, VIEW DEFINITION ON TYPE::{TableType} TO [{ClassReaderLogin}];
+            GRANT EXECUTE, REFERENCES, VIEW DEFINITION ON TYPE::{AliasType} TO [{ClassReaderLogin}];
+            GRANT EXECUTE, REFERENCES, VIEW DEFINITION ON XML SCHEMA COLLECTION::{OrderNotesSchema} TO [{ClassReaderLogin}];
+            GRANT REFERENCES, VIEW DEFINITION ON FULLTEXT CATALOG::[{ShopCatalog}] TO [{ClassReaderLogin}];
+            """);
+
+        // Across databases, SEND is checked for the initiating service's owner in the target database (the
+        // initiating database must be TRUSTWORTHY for that owner's login to be mapped there).
+        yield return (BrokerDatabase, $"""
+            ALTER DATABASE CURRENT SET TRUSTWORTHY ON;
+            CREATE USER [{ServiceSenderLogin}] FOR LOGIN [{ServiceSenderLogin}];
+            CREATE USER [{ClassReaderLogin}] FOR LOGIN [{ClassReaderLogin}];
+            CREATE QUEUE dbo.SenderOutboxQueue;
+            ALTER AUTHORIZATION ON OBJECT::dbo.SenderOutboxQueue TO [{ServiceSenderLogin}];
+            CREATE SERVICE [{SenderOutboxService}] AUTHORIZATION [{ServiceSenderLogin}] ON QUEUE dbo.SenderOutboxQueue;
+            CREATE QUEUE dbo.ReaderOutboxQueue;
+            ALTER AUTHORIZATION ON OBJECT::dbo.ReaderOutboxQueue TO [{ClassReaderLogin}];
+            CREATE SERVICE [{ReaderOutboxService}] AUTHORIZATION [{ClassReaderLogin}] ON QUEUE dbo.ReaderOutboxQueue;
+            """);
+    }
+
+    /// <summary>
+    /// Objects SQL Server marks as shipped in a database of their own, a user-defined server role and an application
+    /// role, and the logins that hold one right on each. Runs after the logins exist.
+    /// </summary>
+    private IEnumerable<(string Database, string Sql)> ShippedSeedBatches()
+    {
+        // Change data capture adds the cdc schema and its tables, all marked as shipped. It needs no Agent job to be
+        // enabled, and the batch must not be in a transaction.
+        yield return (ShippedDatabase, "EXEC sys.sp_cdc_enable_db;");
+        yield return (ShippedDatabase, $"""
+            CREATE TABLE {LedgerTable} (Id int IDENTITY(1, 1) NOT NULL PRIMARY KEY, Note nvarchar(50) NOT NULL);
+            CREATE TABLE {MarkedTable} (Id int IDENTITY(1, 1) NOT NULL PRIMARY KEY, Note nvarchar(50) NOT NULL);
+            """);
+        yield return (ShippedDatabase, $"CREATE PROCEDURE {MarkedProcedure} AS INSERT INTO {LedgerTable} (Note) VALUES (N'added');");
+        yield return (ShippedDatabase, $"""
+            EXEC sys.sp_MS_marksystemobject N'{MarkedProcedure}';
+            EXEC sys.sp_MS_marksystemobject N'{MarkedTable}';
+            CREATE USER [{ShippedWriterLogin}] FOR LOGIN [{ShippedWriterLogin}];
+            GRANT SELECT ON SCHEMA::dbo TO [{ShippedWriterLogin}];
+            GRANT EXECUTE ON {MarkedProcedure} TO [{ShippedWriterLogin}];
+            GRANT INSERT, DELETE ON {MarkedTable} TO [{ShippedWriterLogin}];
+            CREATE USER [{CdcDeleterLogin}] FOR LOGIN [{CdcDeleterLogin}];
+            GRANT SELECT ON SCHEMA::dbo TO [{CdcDeleterLogin}];
+            GRANT DELETE ON {CdcHistoryTable} TO [{CdcDeleterLogin}];
+            CREATE USER [{PlainReaderLogin}] FOR LOGIN [{PlainReaderLogin}];
+            GRANT SELECT ON SCHEMA::dbo TO [{PlainReaderLogin}];
+            """);
+        foreach (var database in new[] { "master", "msdb" })
+        {
+            yield return (database, $"""
+                CREATE USER [{PlainReaderLogin}] FOR LOGIN [{PlainReaderLogin}];
+                GRANT SELECT ON SCHEMA::dbo TO [{PlainReaderLogin}];
+                """);
+        }
+
+        yield return ("master", $"""
+            CREATE SERVER ROLE [{LoginAdminsRole}];
+            GRANT ALTER ANY LOGIN TO [{LoginAdminsRole}];
+            GRANT ALTER ON SERVER ROLE::[{LoginAdminsRole}] TO [{ServerRoleAltererLogin}];
+            """);
+        yield return (Database, $"""
+            CREATE USER [{ServerRoleAltererLogin}] FOR LOGIN [{ServerRoleAltererLogin}];
+            GRANT SELECT ON SCHEMA::dbo TO [{ServerRoleAltererLogin}];
+            CREATE USER [{AppRoleAltererLogin}] FOR LOGIN [{AppRoleAltererLogin}];
+            GRANT SELECT ON SCHEMA::dbo TO [{AppRoleAltererLogin}];
+            CREATE APPLICATION ROLE [{ReportingAppRole}] WITH PASSWORD = N'{AppRolePassword}', DEFAULT_SCHEMA = dbo;
+            GRANT INSERT ON dbo.Customers TO [{ReportingAppRole}];
+            GRANT ALTER ON APPLICATION ROLE::[{ReportingAppRole}] TO [{AppRoleAltererLogin}];
+            """);
+    }
+
     private IEnumerable<(string Database, string Sql)> SeedBatches()
     {
         yield return ("master", $"CREATE DATABASE [{Database}]; CREATE DATABASE [{OtherDatabase}]; CREATE DATABASE [{SalesDatabase}]; " +
-            $"CREATE DATABASE {Bracket(QuotedDatabase)}; CREATE DATABASE [{ExampleDatabase}];");
+            $"CREATE DATABASE {Bracket(QuotedDatabase)}; CREATE DATABASE [{ExampleDatabase}]; CREATE DATABASE [{BrokerDatabase}]; " +
+            $"CREATE DATABASE [{ShippedDatabase}];");
 
         yield return (Database, """
             CREATE TABLE dbo.Customers (
@@ -528,6 +851,16 @@ public sealed class SqlServerFixture : IAsyncLifetime
             GRANT SELECT ON SCHEMA::dbo TO [{SynonymUpdaterLogin}];
             GRANT UPDATE ON {CustomerSynonym} TO [{SynonymUpdaterLogin}];
             """);
+
+        foreach (var batch in ClassSeedBatches())
+        {
+            yield return batch;
+        }
+
+        foreach (var batch in ShippedSeedBatches())
+        {
+            yield return batch;
+        }
 
         yield return (QuotedDatabase, $"""
             CREATE TABLE dbo.Items (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) NOT NULL);

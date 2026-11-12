@@ -7,7 +7,11 @@ namespace MssqlReadOnlyMcp;
 /// <param name="Permission">The permission or role name.</param>
 /// <param name="Scope">
 /// <c>server</c>, <c>server role</c>, <c>login</c>, <c>database</c>, <c>database role</c>, <c>user</c>, <c>role</c>,
-/// <c>schema</c>, <c>object</c> or <c>column</c>.
+/// <c>application role</c>, <c>schema</c>, <c>object</c>, <c>synonym</c>, <c>column</c>, <c>queue</c>,
+/// <c>service</c>, <c>certificate</c>, <c>asymmetric key</c>, <c>symmetric key</c>, <c>assembly</c>, <c>type</c>,
+/// <c>xml schema collection</c> or <c>full-text catalog</c>. <c>server role</c> without names is a membership; with
+/// a name it is a right on that user-defined server role. A service the login holds only SEND on is not visible to it
+/// and is named <c>id &lt;service_id&gt;</c>.
 /// </param>
 /// <param name="Objects">At most ten names the permission is held on; empty for scopes without names.</param>
 /// <param name="ObjectCount">How many names hold the permission in total.</param>
@@ -67,16 +71,35 @@ internal static class PermissionCheck
     //   server:   CONNECT SQL (log in at all), VIEW ANY DATABASE (see database names; public holds it by default).
     //   database: CONNECT (enter the database), VIEW ANY COLUMN ENCRYPTION KEY DEFINITION and VIEW ANY COLUMN MASTER
     //             KEY DEFINITION (Always Encrypted key metadata, never key material; public holds both by default).
-    // Below those, objects, columns, roles, schemas, sequences, modules and synonyms are asked one by one. Names are passed
-    // through QUOTENAME so a name that needs quoting (a dot, a space, a bracket) is not misread as another name,
-    // which would answer NULL.
+    // Below those, objects, columns, roles, application roles, schemas, sequences, modules and synonyms are asked one
+    // by one, and so are user-defined server roles, Service Broker queues and services, certificates, asymmetric and
+    // symmetric keys, assemblies, user types, XML schema collections and full-text catalogs (measured on the same
+    // three versions). Names are passed through QUOTENAME so a name that needs quoting (a dot, a space, a bracket) is
+    // not misread as another name, which would answer NULL.
+    // The object arms read every object of their types in the connected database's sys.objects, the ones SQL Server
+    // marks as shipped (is_ms_shipped = 1) included: sp_MS_marksystemobject marks any object so, and change data
+    // capture adds shipped tables in schema cdc, and a right on either works (measured). Connected to msdb every
+    // login with a user there is therefore refused: public may execute 14 shipped procedures and functions there on
+    // 2019, 15 on 2022 and 2025. The system views, procedures and functions in schemas sys and INFORMATION_SCHEMA are
+    // in sys.system_objects, not sys.objects, and are not asked; in sys.objects those schemas hold only IT, S, PK and
+    // TT rows, none of the asked types (measured); the schemas themselves are asked. Connected to master, SQL Server
+    // accepts an EXECUTE grant on a system extended procedure in schema sys (sys.xp_regwrite, type X); it is not in
+    // sys.objects, so this check does not see it (measured).
     // Metadata visibility helps here: a login sees a login, user, role or object it holds a permission on.
     // The first arm's COLLATE settles the arms' different catalogue collations (server, database, permission list).
+    // Filters kept below, and why. Measured: a user-defined server role's rights reach its members'
+    // fn_my_permissions(SERVER), so membership is asked of fixed server roles only; GRANT ALTER, CONTROL or TAKE
+    // OWNERSHIP on a fixed server role or public fails with error 15151, so rights are asked of user-defined server
+    // roles only; every right on a built-in type fails with 15151 and on sys.sys with 4606, so types are asked when
+    // user-defined and XML schema collections outside schema sys. Reasons, not measurements: public is left out of
+    // membership (every login is in it, and its rights are in fn_my_permissions); the login's own login and user are
+    // left out of IMPERSONATE (acting as itself gives it nothing it lacks); membership is asked of six fixed database
+    // roles because the rights of any other role reach fn_my_permissions(DATABASE) or the one-by-one questions.
     private const string CheckSql = """
         SELECT f.permission, f.scope, f.object_name, f.column_name, f.state
         FROM (
             SELECT CAST(r.name AS nvarchar(128)) COLLATE DATABASE_DEFAULT AS permission,
-                   CAST(N'server role' AS nvarchar(20)) COLLATE DATABASE_DEFAULT AS scope,
+                   CAST(N'server role' AS nvarchar(30)) COLLATE DATABASE_DEFAULT AS scope,
                    CAST(NULL AS nvarchar(600)) COLLATE DATABASE_DEFAULT AS object_name,
                    CAST(NULL AS nvarchar(300)) COLLATE DATABASE_DEFAULT AS column_name,
                    IS_SRVROLEMEMBER(r.name) AS state
@@ -109,6 +132,23 @@ internal static class PermissionCheck
             CROSS JOIN (VALUES (N'ALTER'), (N'CONTROL'), (N'TAKE OWNERSHIP')) AS p(name)
             WHERE d.type = 'R'
             UNION ALL
+            -- Application roles: ALTER (implied by CONTROL) lets the login change the role's default schema
+            -- (measured; a rename, a new password or DROP needs ALTER ANY APPLICATION ROLE). The class has no
+            -- TAKE OWNERSHIP. The plain reader does not see application roles; a login holding ALTER does.
+            SELECT p.name, N'application role', QUOTENAME(d.name), NULL,
+                   HAS_PERMS_BY_NAME(QUOTENAME(d.name), N'APPLICATION ROLE', p.name)
+            FROM sys.database_principals AS d
+            CROSS JOIN (VALUES (N'ALTER'), (N'CONTROL')) AS p(name)
+            WHERE d.type = 'A'
+            UNION ALL
+            -- User-defined server roles: ALTER lets the login add itself as a member and so gain the role's rights
+            -- (measured with ALTER ANY LOGIN).
+            SELECT p.name, N'server role', QUOTENAME(r.name), NULL,
+                   HAS_PERMS_BY_NAME(QUOTENAME(r.name), N'SERVER ROLE', p.name)
+            FROM sys.server_principals AS r
+            CROSS JOIN (VALUES (N'ALTER'), (N'CONTROL'), (N'TAKE OWNERSHIP')) AS p(name)
+            WHERE r.type = 'R' AND r.is_fixed_role = 0 AND r.name <> N'public'
+            UNION ALL
             SELECT p.permission_name, N'schema', QUOTENAME(s.name), NULL, HAS_PERMS_BY_NAME(QUOTENAME(s.name), N'SCHEMA', p.permission_name)
             FROM sys.schemas AS s
             CROSS JOIN sys.fn_builtin_permissions(N'SCHEMA') AS p
@@ -121,21 +161,21 @@ internal static class PermissionCheck
                    HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name), N'OBJECT', p.name)
             FROM sys.objects AS o
             CROSS JOIN (VALUES (N'INSERT'), (N'UPDATE'), (N'DELETE'), (N'ALTER'), (N'CONTROL'), (N'TAKE OWNERSHIP')) AS p(name)
-            WHERE o.type IN ('U', 'V', 'IF') AND o.is_ms_shipped = 0
+            WHERE o.type IN ('U', 'V', 'IF')
             UNION ALL
             -- Sequences: UPDATE is what NEXT VALUE FOR needs.
             SELECT p.name, N'object', QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name), NULL,
                    HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name), N'OBJECT', p.name)
             FROM sys.objects AS o
             CROSS JOIN (VALUES (N'UPDATE'), (N'ALTER'), (N'CONTROL'), (N'TAKE OWNERSHIP')) AS p(name)
-            WHERE o.type = 'SO' AND o.is_ms_shipped = 0
+            WHERE o.type = 'SO'
             UNION ALL
             -- Procedures and functions (SQL, CLR and extended).
             SELECT p.name, N'object', QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name), NULL,
                    HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name), N'OBJECT', p.name)
             FROM sys.objects AS o
             CROSS JOIN (VALUES (N'EXECUTE'), (N'ALTER'), (N'CONTROL'), (N'TAKE OWNERSHIP')) AS p(name)
-            WHERE o.type IN ('P', 'PC', 'X', 'RF', 'FN', 'FS', 'TF', 'FT', 'AF') AND o.is_ms_shipped = 0
+            WHERE o.type IN ('P', 'PC', 'X', 'RF', 'FN', 'FS', 'TF', 'FT', 'AF')
             UNION ALL
             -- Synonyms: with an unbroken ownership chain a right granted on the synonym alone reaches the object it
             -- names (measured: UPDATE on a synonym of a table changes the table). EXECUTE because a synonym can name
@@ -145,7 +185,7 @@ internal static class PermissionCheck
             FROM sys.objects AS o
             CROSS JOIN (VALUES (N'INSERT'), (N'UPDATE'), (N'DELETE'), (N'EXECUTE'), (N'ALTER'), (N'CONTROL'),
                                (N'TAKE OWNERSHIP')) AS p(name)
-            WHERE o.type = 'SN' AND o.is_ms_shipped = 0
+            WHERE o.type = 'SN'
             UNION ALL
             -- Column-level UPDATE (the only column-level right that changes data; SQL Server has no column-level
             -- INSERT or DELETE). A column of an object that already has object-level UPDATE is dropped by the caller.
@@ -154,7 +194,84 @@ internal static class PermissionCheck
                                      QUOTENAME(c.name), N'COLUMN')
             FROM sys.objects AS o
             JOIN sys.columns AS c ON c.object_id = o.object_id
-            WHERE o.type IN ('U', 'V', 'IF') AND o.is_ms_shipped = 0
+            WHERE o.type IN ('U', 'V', 'IF')
+            UNION ALL
+            -- Service Broker queues: RECEIVE takes messages off the queue, ALTER turns it off or changes it. The
+            -- list is fixed because a queue is an OBJECT: INSERT, UPDATE, DELETE, EXECUTE, UNMASK and VIEW CHANGE
+            -- TRACKING cannot be granted on one (4606) and a queue cannot be written directly (416, even for sa);
+            -- SELECT only reads the queue. Built-in queues are asked too: a user database has three in schema dbo
+            -- (is_ms_shipped = 1) that accept RECEIVE and CONTROL, and RECEIVE on one lets the login begin a dialog
+            -- from that queue's built-in service, owned by dbo, and send to a user service in the database (measured).
+            SELECT p.name, N'queue', QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name), NULL,
+                   HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name), N'OBJECT', p.name)
+            FROM sys.objects AS o
+            CROSS JOIN (VALUES (N'RECEIVE'), (N'ALTER'), (N'CONTROL'), (N'TAKE OWNERSHIP')) AS p(name)
+            WHERE o.type = 'SQ'
+            UNION ALL
+            -- Services, certificates, asymmetric and symmetric keys, assemblies, user types, XML schema collections
+            -- and full-text catalogs: every right SQL Server lists for the class is a finding except
+            -- those allowed here. Allowed (measured): VIEW DEFINITION and REFERENCES change nothing and run nothing
+            -- (REFERENCES on a certificate or asymmetric key encrypts with the public key only; on an assembly, type,
+            -- XML schema collection or catalog it is used by CREATE statements the login cannot run; on a symmetric
+            -- key protected by a password, either right plus that password opens the key, which reads with a secret
+            -- the login already holds and changes nothing); EXECUTE on a
+            -- table type, an alias type or an XML schema collection only declares a variable. EXECUTE on a CLR type
+            -- runs the assembly's code. SEND on a service puts messages on its queue (from a TRUSTWORTHY database).
+            -- An owner holds CONTROL, which is a finding. Built-in assemblies are asked too: Microsoft.SqlServer.Types
+            -- (owner sys) accepts ALTER, CONTROL and TAKE OWNERSHIP grants; ALTER ASSEMBLY and DROP ASSEMBLY are
+            -- still refused on it, but CONTROL or TAKE OWNERSHIP lets the login make itself its owner (measured).
+            -- Built-in types and the XML schema collections in schema sys are left out because
+            -- SQL Server refuses every right on them: error 15151 on a built-in type, 4606 on sys.sys (measured for
+            -- each right the class lists).
+            SELECT p.permission_name, k.scope, k.name, NULL, HAS_PERMS_BY_NAME(k.name, k.class, p.permission_name)
+            FROM (
+                SELECT CAST(N'SERVICE' AS nvarchar(60)) COLLATE DATABASE_DEFAULT, CAST(N'service' AS nvarchar(30)) COLLATE DATABASE_DEFAULT,
+                       CAST(QUOTENAME(s.name) AS nvarchar(600)) COLLATE DATABASE_DEFAULT, 0
+                FROM sys.services AS s
+                UNION ALL
+                SELECT N'CERTIFICATE', N'certificate', QUOTENAME(c.name), 0 FROM sys.certificates AS c
+                UNION ALL
+                SELECT N'ASYMMETRIC KEY', N'asymmetric key', QUOTENAME(a.name), 0 FROM sys.asymmetric_keys AS a
+                UNION ALL
+                SELECT N'SYMMETRIC KEY', N'symmetric key', QUOTENAME(y.name), 0 FROM sys.symmetric_keys AS y
+                UNION ALL
+                SELECT N'ASSEMBLY', N'assembly', QUOTENAME(a.name), 0 FROM sys.assemblies AS a
+                UNION ALL
+                SELECT N'TYPE', N'type', QUOTENAME(SCHEMA_NAME(t.schema_id)) + N'.' + QUOTENAME(t.name), 1 - t.is_assembly_type
+                FROM sys.types AS t
+                WHERE t.is_user_defined = 1
+                UNION ALL
+                SELECT N'XML SCHEMA COLLECTION', N'xml schema collection',
+                       QUOTENAME(SCHEMA_NAME(x.schema_id)) + N'.' + QUOTENAME(x.name), 1
+                FROM sys.xml_schema_collections AS x
+                WHERE x.schema_id <> SCHEMA_ID(N'sys')
+                UNION ALL
+                SELECT N'FULLTEXT CATALOG', N'full-text catalog', QUOTENAME(t.name), 0 FROM sys.fulltext_catalogs AS t
+            ) AS k(class, scope, name, execute_allowed)
+            JOIN sys.fn_builtin_permissions(DEFAULT) AS p ON p.class_desc = k.class
+            WHERE p.permission_name NOT IN (N'VIEW DEFINITION', N'REFERENCES')
+              AND (p.permission_name <> N'EXECUTE' OR k.execute_allowed = 0)
+            UNION ALL
+            -- SEND alone does not make a service visible in sys.services, but the grant row is visible in
+            -- sys.database_permissions when it is the login's own, a role's it is in, or public's. Such a service
+            -- is named by its id, once however many grant rows reach the login: held if any row answers 1, else
+            -- could not be checked if any answers NULL, else not held. A deny next to the grant is not read: the
+            -- grant is still a finding.
+            SELECT N'SEND', N'service', CONCAT(N'id ', u.major_id), NULL,
+                   CASE WHEN MAX(CASE WHEN u.state = 1 THEN 1 ELSE 0 END) = 1 THEN 1
+                        WHEN COUNT(*) > COUNT(u.state) THEN NULL
+                        ELSE 0 END
+            FROM (
+                SELECT p.major_id,
+                       CASE WHEN p.grantee_principal_id = DATABASE_PRINCIPAL_ID() THEN 1
+                            WHEN g.type IN ('R', 'G', 'X') THEN IS_MEMBER(g.name)
+                            WHEN g.principal_id IS NOT NULL THEN 0 END
+                FROM sys.database_permissions AS p
+                LEFT JOIN sys.database_principals AS g ON g.principal_id = p.grantee_principal_id
+                WHERE p.class = 17 AND p.type = 'SN' AND p.state IN ('G', 'W')
+                  AND NOT EXISTS (SELECT 1 FROM sys.services AS s WHERE s.service_id = p.major_id)
+            ) AS u(major_id, state)
+            GROUP BY u.major_id
         ) AS f
         WHERE ISNULL(f.state, 1) = 1
         ORDER BY f.scope, f.permission, f.object_name, f.column_name;

@@ -544,19 +544,32 @@ The check runs one query (`src/MssqlReadOnlyMcp/PermissionCheck.cs`) and refuses
   `VIEW ANY COLUMN ENCRYPTION KEY DEFINITION` and `VIEW ANY COLUMN MASTER KEY DEFINITION`;
 - membership of any fixed server role other than `public`, or of `db_owner`, `db_datawriter`, `db_ddladmin`,
   `db_securityadmin`, `db_accessadmin` or `db_backupoperator`;
-- below database scope, user objects only (not `is_ms_shipped`): write, alter, control and ownership rights on
-  tables, views and inline functions, column `UPDATE`, sequences, procedures and functions (also `EXECUTE`),
-  schemas (also `CREATE ...`), roles, and synonyms (also `EXECUTE`); `IMPERSONATE` on users and logins.
+- below database scope, on every object of the asked types in the connection's database's `sys.objects`, those
+  SQL Server marks as shipped (`is_ms_shipped = 1`) included: write, alter, control and ownership rights on tables,
+  views and inline functions, column `UPDATE`, sequences, procedures and functions (also `EXECUTE`), and synonyms
+  (also `EXECUTE`);
+- write, alter, control and ownership rights on schemas (also `EXECUTE` and `CREATE ...`), `ALTER`, `CONTROL` and
+  `TAKE OWNERSHIP` on roles, `ALTER` and `CONTROL` on application roles (scope `application role`), `IMPERSONATE`
+  on users and logins, and `ALTER`, `CONTROL` and `TAKE OWNERSHIP` on user-defined server roles (scope
+  `server role`, with the role's name);
+- on Service Broker queues, the built-in ones in schema `dbo` included (three in a user database), a fixed list:
+  `RECEIVE`, `ALTER`, `CONTROL` and `TAKE OWNERSHIP` (scope `queue`);
+- on services, certificates, asymmetric keys, symmetric keys, assemblies (the built-in `Microsoft.SqlServer.Types`
+  included), user types, XML schema collections outside schema `sys` and full-text catalogs (scopes `service`,
+  `certificate`, `asymmetric key`, `symmetric key`, `assembly`, `type`, `xml schema collection`,
+  `full-text catalog`): every right SQL Server lists for the class (`sys.fn_builtin_permissions`) except
+  `VIEW DEFINITION`, `REFERENCES`, and `EXECUTE` on a table type, an alias type or an XML schema collection.
 
-The allowed sets are what a login made by `scripts/create-readonly-login.sql` holds on SQL Server 2019, 2022 and
-2025 (code comment in `PermissionCheck.cs`). Any other permission is a finding by its own name, so one that a later
-SQL Server version adds is refused without a code change. "Effective" (`sys.fn_my_permissions`) includes rights
-that roles and higher scopes imply, and rights that only widen reading: database-wide `SELECT`, `UNMASK`,
-`CONNECT ANY DATABASE` and `SELECT ALL USER SECURABLES` are refused too, as are read-only database grants such as
-`VIEW DEFINITION`, `SHOWPLAN` and `VIEW DATABASE STATE`, so a platform that grants such extras by default will see
-its logins refused. The query counts a NULL answer as a finding (`ISNULL(state, 1) = 1`, printed as
-`could not be checked`), never a pass; its test (`Null_answer_is_a_finding_named_could_not_be_checked`) checks
-only how the finding is printed, and no test produces a NULL answer.
+The server and database allowed sets are what a login made by `scripts/create-readonly-login.sql` holds on SQL
+Server 2019, 2022 and 2025 (code comment in `PermissionCheck.cs`). Any other permission is a finding by its own
+name, so one that a later SQL Server version adds is refused without a code change. "Effective"
+(`sys.fn_my_permissions`) includes rights that roles and higher scopes imply, and rights that only widen reading:
+database-wide `SELECT`, `UNMASK`, `CONNECT ANY DATABASE` and `SELECT ALL USER SECURABLES` are refused too, as are
+read-only database grants such as `VIEW DEFINITION`, `SHOWPLAN` and `VIEW DATABASE STATE`, so a platform that grants
+such extras by default will see its logins refused. The query counts a NULL answer as a finding
+(`ISNULL(state, 1) = 1`, printed as `could not be checked`), never a pass; its test
+(`Null_answer_is_a_finding_named_could_not_be_checked`) checks only how the finding is printed, and no test produces
+a NULL answer.
 `PermissionCheckTests.cs` covers the reader passing and, among others, `sa`, `db_owner`, `db_datawriter`, single
 table and column `UPDATE`, `IMPERSONATE`, `ALTER TRACE` (with the `SHOWPLAN` it implies), `BACKUP DATABASE`,
 `UNMASK`, `TAKE OWNERSHIP` on a role and `UPDATE` on a synonym (`UPDATE on synonym [dbo].[CustomerAlias]`).
@@ -568,17 +581,157 @@ as `RowsChanged` and is rolled back). The check reports such a grant even when t
 database, on a linked server or behind a broken ownership chain, where SQL Server also asks for the right on the
 target (not tested here); the login is then refused although it may not be able to write through that synonym.
 
+Objects that SQL Server marks as shipped (`is_ms_shipped = 1`) in the connected database are asked like any other
+object of the asked types. Two cases were measured on 2019, 2022 and 2025 (`PermissionCheckTests.cs`): a procedure
+and a table marked with `sp_MS_marksystemobject`, where a login with `EXECUTE` on the procedure and `INSERT`,
+`DELETE` on the table gets `DELETE on object [dbo].[MarkedNotes]`, `EXECUTE on object [dbo].[AddLedger]` and
+`INSERT on object [dbo].[MarkedNotes]` and can run the procedure (it writes a row) and the insert; and the tables
+that change data capture adds in schema `cdc` (`sys.sp_cdc_enable_db`), where `DELETE` on `cdc.ddl_history` gives
+`DELETE on object [cdc].[ddl_history]` and the delete runs. The reader can do none of it (error 229).
+
+Connected to `msdb`, a login with a user there is refused (measured for a reader with `SELECT` on schema `dbo`;
+every user is in `public`), because `public` may execute shipped procedures and functions in schema `dbo` there:
+`fn_sysdac_is_currentuser_sa`, `fn_sysdac_is_dac_creator`, `fn_sysdac_is_login_creator`,
+`fn_syspolicy_is_automation_enabled`, ten procedures named `sp_sysdac_*` and, on 2022 and 2025,
+`sp_sysutility_cag_create_db`: 14 objects on 2019 and 15 on 2022 and 2025, reported as one finding,
+`EXECUTE on object [dbo].[fn_sysdac_is_currentuser_sa], ...`, that names the first ten and ends `and 4 more` on
+2019 or `and 5 more` on 2022 and 2025. A login without a user in `master` or `msdb` enters as `guest` and is
+refused for schema `[guest]` (`ALTER`, `CONTROL`, `CREATE SEQUENCE`, `DELETE`, `EXECUTE`, `INSERT`,
+`TAKE OWNERSHIP` and `UPDATE`, measured). Point the server at the database it reads, with a user for the login
+there.
+
+A finding on a shipped object that you did not grant to the login comes from a grant that reaches it another way,
+for example through `public` or a role it is in, as in `msdb`; find it in that database's
+`sys.database_permissions`. A grant to `public` reaches every user there. A plain reader (a user with `SELECT` on
+schema `dbo`) had no such finding, and no finding at all, in `master`, in a new user database, in a database with
+change data capture enabled (`sys.sp_cdc_enable_db`), in a database where two tables were also enabled for capture
+with `sys.sp_cdc_enable_table`, one with a gating role and one without (SQL Server Agent was not running and did
+not have to run), and in a database with change tracking enabled on the database and on one table. With captured
+tables SQL Server grants `SELECT` on the change functions and on `cdc.lsn_time_mapping` to `public` or to the
+gating role, a right the check does not ask. Measured on the three versions. A database with replication or with
+database diagrams was not measured.
+
+A plain reader is refused, although it cannot write there, in a database with a system-versioned temporal table,
+and on 2022 and 2025 with an updatable ledger table. SQL Server reports `INSERT` on the history table for a login
+that holds `SELECT` on it (`sys.fn_my_permissions` lists `SELECT` and `INSERT`), so the check finds
+`INSERT on object` naming the history table (`[dbo].[PricesHistory]`, `[dbo].[MSSQL_LedgerHistoryFor_<object_id>]`;
+one finding names both when both are in the database), while the insert itself fails (error 13559 on the temporal
+history table, 37361 on the ledger history table). `DENY INSERT` on the history table, or on the schema, did not
+change that answer: the reader was still refused. A reader granted `SELECT` on the current tables only passes, but
+cannot read the history (`FOR SYSTEM_TIME ALL` fails with error 229). No grant was found that lets a login read the
+history and pass the check. Measured on the three versions (the ledger table on 2022 and 2025). In such a
+database, grant `SELECT` on the current tables by name, as `scripts/create-readonly-login.sql` does, not on their
+schema; a login that passes the check cannot read the history.
+
+`ALTER` on an application role lets the login change the role's default schema; a new name, a new password or
+`DROP` failed with error 15151 under that right (SQL Server documents `ALTER ANY APPLICATION ROLE` for them).
+`CONTROL` granted alone on an application role is found as `ALTER` and `CONTROL`, and allowed the same act and
+none of the other three. `ALTER` on a user-defined server role lets the login add itself as a member, and a member
+holds the role's rights (measured with a role holding `ALTER ANY LOGIN`). `CONTROL` granted alone on such a role is
+found as `ALTER`, `CONTROL` and `TAKE OWNERSHIP` and also let the login add itself; `TAKE OWNERSHIP` granted alone
+is found as itself and let the login make itself the role's owner (`ALTER AUTHORIZATION`). The findings name the
+role (`ALTER on application role [reporting_app]`, `ALTER on server role [mcp_login_admins]`). Each act was rolled
+back, the plain reader got error 15151 for each, and all of it was measured on the three versions; what an owner
+of a server role can do after taking it was not measured. These rights are not asked of the fixed server roles
+and `public`: SQL Server refuses those three grants on them (error 15151). Membership of the fixed server roles is
+asked instead.
+
 A `db_datareader` member is refused: the role gives `SELECT` on the whole database, and SQL Server makes the role
 the owner of schema `db_datareader`, so its members can create objects there (`CONTROL on schema [db_datareader]`,
 `CREATE SEQUENCE on schema [db_datareader]`, `SELECT on database ...`). `PermissionCheckTests.cs` shows that such a
 member really can create a sequence in that schema. Grant SELECT on named tables, views or schemas instead, as
 `scripts/create-readonly-login.sql` does.
 
-`check-login` inspects the server and the connection's database only. Not checked: other databases (`msdb`
-included), linked-server login mappings, application roles, cross-database ownership chains, the object and
-schema `SELECT` grants you make, what views and synonyms read, and object-level grants or ownership on Service
-Broker queues (`RECEIVE`) and services (`SEND`), assemblies, certificates, asymmetric and symmetric keys, types,
-XML schema collections and full-text catalogs. Use a login created by `scripts/create-readonly-login.sql`, which
+The class rules were measured on 2019, 2022 and 2025 by granting each right alone and trying what it enables.
+The queue list is fixed because SQL Server cannot grant `INSERT`, `UPDATE`, `DELETE` or `EXECUTE` on a queue (error
+4606) and refuses `INSERT` and `DELETE` on one even for `sa` (error 416); `RECEIVE` takes messages off it, and `SELECT`
+only reads it. The built-in queues are asked like user ones (three in a user database or `master`, six in
+`msdb`): `RECEIVE` on `dbo.QueryNotificationErrorsQueue` lets the login begin a dialog from that queue's built-in
+service, owned by `dbo`, and send a message to a user service's queue. For the other eight classes the rule is the
+one used at server and database scope: allow what is listed, refuse the rest, so a right that a later version adds
+is refused without a code change. The built-in assembly `Microsoft.SqlServer.Types` (owner `sys`) is asked too.
+SQL Server accepts a grant of `ALTER`, `CONTROL` or `TAKE OWNERSHIP` on it, and the check finds each. On this system
+assembly SQL Server still refuses `ALTER ASSEMBLY` and `DROP ASSEMBLY` to all three logins (error 15151; `DROP`
+under `CONTROL` gives 6560, "a system assembly"). `ALTER AUTHORIZATION` works under `CONTROL` or `TAKE OWNERSHIP`
+and makes the login the assembly's owner; under `ALTER` alone it fails with 15151. Built-in types and the XML schema
+collection `sys.sys` are not asked because SQL Server refuses every right the class lists on them (error 15151 on a
+built-in type, 4606 on `sys.sys`). `VIEW DEFINITION` and `REFERENCES` changed nothing and ran no code: on a
+certificate or an asymmetric key they let the login encrypt with the public key only, on a symmetric key protected
+by a password they let a login that knows the password use the key (see the limits below), and the `CREATE`
+statements that use `REFERENCES` on an assembly, a type or an XML schema collection were refused for want of the
+`CREATE` right (error 262). `EXECUTE` on a table type or an XML schema collection only declares a variable, and on
+an alias type it adds nothing; `EXECUTE` on a CLR type runs the assembly's code and is a finding
+(`EXECUTE on type [dbo].[Point]`). An owner holds `CONTROL`, which is a finding.
+
+`SEND` on a service lets a dialog begun in a `TRUSTWORTHY` database put a message on the service's queue. `SEND`
+alone does not make the service visible to the login, so the check reads the grant from
+`sys.database_permissions` (the login's own, a role's it is in, or `public`'s) and names the service by id, once
+however many grants reach the login: `SEND on service id <service_id>`. Some Service Broker setups grant `SEND` on
+a service to `public`; that grant reaches every login, so every login is refused in that database (measured for the
+plain reader: `SEND on service id 65536`). As with a platform that grants extras by default, revoke it from
+`public` and grant `SEND` to the senders that need it, or point the server at another database.
+
+The check finds these securables in the catalog views, which show a login only those it holds some right on.
+Measured on all three versions, a single grant of any right the check refuses on these classes made the securable
+visible, except `SEND` on a service (read from `sys.database_permissions`, as above); of the allowed rights,
+`EXECUTE` on a table type made it visible and `EXECUTE` on an XML schema collection did not. Visibility under
+`VIEW DEFINITION` or `REFERENCES` alone was not measured. The built-in queues and `Microsoft.SqlServer.Types` are
+visible to the plain reader.
+
+`PermissionCheckTests.cs` gives one or more logins per class their exact findings (a built-in queue and the
+built-in assembly included, and a login holding `SEND` both directly and through a role, named once), passes a
+login holding `VIEW DEFINITION` on each of these classes, `REFERENCES` on each except the queue and the service (a
+service has no `REFERENCES` right; the queue has one, not granted to this login) and `EXECUTE` on a table type, an
+alias type and an XML schema collection, and runs at least one act for each refused login except the two that hold
+`SEND` through a role, while the reader cannot: a message received, a message sent from a built-in queue's service,
+a service's contract dropped, a certificate signing, a private key removed, a symmetric key's owner changed, the
+built-in assembly's owner changed, an assembly file added, a CLR method run, an XML schema collection altered, a
+catalog rebuilt, a message delivered from another database. The other found rights (for example `TAKE OWNERSHIP`
+on a certificate or a catalog) have no act of their own.
+
+Limits of the class rules:
+
+- `REFERENCES` on a full-text catalog is allowed; what it is for, `CREATE FULLTEXT INDEX`, could not run in the
+  test images because full-text search is not installed, so that use was not measured.
+- `REFERENCES` or `VIEW DEFINITION` on a symmetric key protected by a password, plus that password, opens the key:
+  the login can then encrypt and decrypt with it (measured). The check allows it because it changes nothing,
+  although it widens what the login can read, unlike `UNMASK` or database-wide `SELECT`, which the check refuses.
+  Do not give such a login the key's password unless it should read that data.
+- On a queue the check asks only `RECEIVE`, `ALTER`, `CONTROL` and `TAKE OWNERSHIP`: a right a later SQL Server
+  version adds on a queue is not refused.
+- For a service the login cannot see, a `SEND` grant to a Windows or Microsoft Entra group is asked with
+  `IS_MEMBER`; that branch was not measured (the test containers have no such principals).
+- A `DENY` next to such an unseen `SEND` grant is not read, so the grant is still reported.
+
+`check-login` inspects the server and the connection's database only. Not checked: other databases (`tempdb`, and
+`msdb` when it is not the connected one, included), linked-server login mappings, the rights of an application role
+(SQL Server documents that a login that knows its password can take them on with `sp_setapprole`; not measured
+here), cross-database ownership chains, the object and schema `SELECT` grants you make, other read-only rights on
+objects and schemas (`UNMASK` on SQL Server 2022 and 2025, `VIEW DEFINITION`, `REFERENCES`, `VIEW CHANGE TRACKING`),
+and what views and synonyms read. Not asked: the system views, procedures and functions in schemas `sys` and
+`INFORMATION_SCHEMA`, which are listed in `sys.system_objects`, not in `sys.objects`; the two schemas themselves
+are asked. In `sys.objects` those two schemas hold only rows of types `IT` and `S`, plus `PK` in `master` on 2022
+and 2025 and `TT` in `msdb`: none of the fifteen asked types (measured in a user database, `master` and `msdb` on
+the three versions).
+
+Not asked, and measured on the three versions (a login holding one of these passes the check, and SQL Server ran
+the statement named in brackets for it): `ALTER` on a single user (`ALTER USER ... WITH DEFAULT_SCHEMA` ran, and
+the user's default schema changed) or login (`ALTER LOGIN ... WITH DEFAULT_DATABASE` ran, and the login's default
+database changed; a new password, a new name or `DISABLE` failed with error 15151), `ALTER` on an endpoint
+(`ALTER ENDPOINT [TSQL Default TCP] STATE = STARTED` ran without error; whether it changed anything was not shown,
+and `STATE = STOPPED` was not run; the plain reader got error 6004) or a route (`ALTER ROUTE ... WITH ADDRESS`
+ran, and the address of `AutoCreatedLocal` changed), and, connected to `master`, `EXECUTE` on a system extended
+procedure in schema `sys` such as `sys.xp_regwrite` (type `X`, listed in `sys.system_objects`;
+`EXEC master.sys.xp_regwrite` ran without error; whether it wrote a value was not shown, as `xp_regread` found none
+afterwards; the plain reader got error 229). With `EXECUTE` granted on `sys.xp_cmdshell`, `EXEC sys.xp_cmdshell`
+failed with error 15281 because that component is off, and it was not turned on. In a user database such a grant
+fails (error 4629). Using any of these rights takes an `ALTER` or `EXEC` statement, which the gate refuses
+(`NotSelect`): it accepts one plain SELECT only. `CONTROL` on a single login or user is found, as
+`IMPERSONATE on login [...]` or `IMPERSONATE on user [...]` (measured; with it the login took on the other
+principal with `EXECUTE AS`). Not asked, and not measured: grants or ownership on a single external table, message
+type, contract, remote service binding, full-text stoplist, search property list, database scoped credential,
+availability group, external language, credential (SQL Server 2022 and 2025) or external model (2025), and rights
+other than `ALTER` on an endpoint or a route. Use a login created by `scripts/create-readonly-login.sql`, which
 grants none of these, and check what `public` holds there. See SECURITY.md, "Known limits".
 
 ## The audit log
@@ -709,11 +862,15 @@ dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release
 - `MSSQL_TEST_IMAGE` selects the SQL Server container image, for example
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`. Without it the tests use
   `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04` (`SqlServerFixture.cs`).
-- Test counts at the time of writing: Gate 364, Audit 55, Integration 119 on each of the three images named under
+- Test counts at the time of writing: Gate 364, Audit 55, Integration 161 on each of the three images named under
   "Prerequisites".
 - `ErpScaleTests.cs` creates a second database with 20,000 tables and asserts that the startup check passes there
-  within the default connection timeout (15 s); it writes the time to its output. Measured before the check moved
-  to the allowlist: about 1.1 s on SQL Server 2022 and 3.4 s on 2019 (2026-11-12).
+  within the default connection timeout (15 s); it writes the time to its output. Measured on 2026-11-12 on one
+  machine, one run per version of a Debug build: 1.3 s on SQL Server 2022, 1.4 s on 2019 and 1.8 s on 2025 with no
+  other SQL Server container running; in runs while other SQL Server containers were busy on the same machine,
+  10.0 s, 5.8 s and 3.8 s. The check's query alone, run in `sqlcmd` as a reader with `SELECT` on schema `dbo` of a
+  scratch database with 20,000 two-column tables (`Id int`, `Name nvarchar(50)`), with the plan cache cleared
+  before each run, took 1.7 to 1.8 s on 2022, 1.8 s on 2019 and 1.9 to 2.1 s on 2025 (three runs each).
 - The SQL Server container images run on x86-64 Linux hosts only (Docker Desktop on Windows uses a Linux VM).
 - `.github/workflows/ci.yml` runs the same steps on GitHub. It has not run yet.
 
