@@ -1,0 +1,70 @@
+# Third-party actions are pinned by full commit SHA (looked up with `git ls-remote --tags`); the version is in the
+# comment after each SHA. SQL Server images are pinned by exact tag (tag list:
+# https://mcr.microsoft.com/v2/mssql/server/tags/list).
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Build (warnings are errors)
+        run: dotnet build MssqlReadOnlyMcp.slnx -c Release -warnaserror
+
+      - name: Gate unit tests
+        run: dotnet test tests/MssqlReadOnlyMcp.Gate.Tests -c Release --no-build
+
+      # Two of these tests start pwsh (PowerShell 7), which the ubuntu-latest image provides. They fail, never
+      # skip, when pwsh is missing.
+      - name: Audit unit tests
+        run: dotnet test tests/MssqlReadOnlyMcp.Audit.Tests -c Release --no-build
+
+  integration-tests:
+    needs: build-and-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # The three images the integration tests passed on locally on 2026-11-12. Change a tag only together with
+        # a local run on the new image.
+        include:
+          - sql: "2019"
+            image: mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04
+          - sql: "2022"
+            image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
+          - sql: "2025"
+            image: mcr.microsoft.com/mssql/server:2025-CU9-GDR1-ubuntu-22.04
+    name: integration-tests (SQL Server ${{ matrix.sql }})
+    env:
+      # Read by tests/MssqlReadOnlyMcp.IntegrationTests/SqlServerFixture.cs; without it the fixture uses the 2022 image.
+      MSSQL_TEST_IMAGE: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      # Docker is preinstalled on ubuntu-latest; Testcontainers starts the SQL Server container. The tests fail,
+      # never skip, when Docker is not reachable.
+      - name: Integration tests
+        run: dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Microsoft.Data.SqlClient refuses to open a connection in globalization-invariant mode
+         (Directory.Build.props turns it on for the libraries). -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="Testcontainers.MsSql" Version="4.16.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MssqlReadOnlyMcp\MssqlReadOnlyMcp.csproj" />
+    <!-- The differential test replays the gate's regression table against SQL Server. -->
+    <ProjectReference Include="..\MssqlReadOnlyMcp.Gate.Tests\MssqlReadOnlyMcp.Gate.Tests.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The stdio tests start the server from its own build output, not from a copy in this folder. -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ServerOutputDirectory</_Parameter1>
+      <_Parameter2>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../src/MssqlReadOnlyMcp/bin/$(Configuration)/$(TargetFramework)/'))</_Parameter2>
+    </AssemblyAttribute>
+    <!-- The setup script test runs scripts/create-readonly-login.sql from the repository as it is. -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>RepositoryRoot</_Parameter1>
+      <_Parameter2>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../'))</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

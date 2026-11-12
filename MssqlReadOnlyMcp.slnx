@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MssqlReadOnlyMcp.Audit/MssqlReadOnlyMcp.Audit.csproj" />
+    <Project Path="src/MssqlReadOnlyMcp.Gate/MssqlReadOnlyMcp.Gate.csproj" />
+    <Project Path="src/MssqlReadOnlyMcp/MssqlReadOnlyMcp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MssqlReadOnlyMcp.Audit.Tests/MssqlReadOnlyMcp.Audit.Tests.csproj" />
+    <Project Path="tests/MssqlReadOnlyMcp.Gate.Tests/MssqlReadOnlyMcp.Gate.Tests.csproj" />
+    <Project Path="tests/MssqlReadOnlyMcp.IntegrationTests/MssqlReadOnlyMcp.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

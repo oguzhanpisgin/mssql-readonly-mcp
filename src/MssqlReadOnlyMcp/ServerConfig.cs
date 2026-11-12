@@ -1,0 +1,127 @@
+using System.Globalization;
+using System.Text;
+using Microsoft.Data.SqlClient;
+
+namespace MssqlReadOnlyMcp;
+
+/// <summary>Thrown when the configuration is missing or invalid. The message never contains a configured value.</summary>
+internal sealed class ConfigException(string message) : Exception(message);
+
+/// <summary>The server configuration, read from environment variables only.</summary>
+/// <param name="ConnectionString">The connection string with <c>ApplicationIntent=ReadOnly</c> and the application name set.</param>
+/// <param name="AuditLogPath">Path of the audit file; empty when the command does not need it.</param>
+/// <param name="MaxRows">Row cap for <c>run_query</c>.</param>
+/// <param name="MaxChars">Character cap for one tool result.</param>
+/// <param name="TimeoutSeconds">Command timeout.</param>
+/// <param name="LockTimeoutMs">Value of <c>SET LOCK_TIMEOUT</c>.</param>
+internal sealed record ServerConfig(
+    string ConnectionString,
+    string AuditLogPath,
+    int MaxRows,
+    int MaxChars,
+    int TimeoutSeconds,
+    int LockTimeoutMs)
+{
+    public const string ApplicationName = "mssql-readonly-mcp";
+
+    public const string ConnectionStringVariable = "MSSQL_CONNECTION_STRING";
+    public const string AuditLogVariable = "MSSQL_MCP_AUDIT_LOG";
+    public const string MaxRowsVariable = "MSSQL_MCP_MAX_ROWS";
+    public const string MaxCharsVariable = "MSSQL_MCP_MAX_CHARS";
+    public const string TimeoutVariable = "MSSQL_MCP_TIMEOUT_SECONDS";
+    public const string LockTimeoutVariable = "MSSQL_MCP_LOCK_TIMEOUT_MS";
+
+    public const int DefaultMaxRows = 200;
+    public const int MinMaxRows = 1;
+    public const int MaxRowsCeiling = 5000;
+
+    public const int DefaultMaxChars = 40000;
+    public const int MinMaxChars = 1000;
+    public const int MaxCharsCeiling = 45000;
+
+    public const int DefaultTimeoutSeconds = 30;
+    public const int MinTimeoutSeconds = 1;
+    public const int TimeoutCeilingSeconds = 300;
+
+    public const int DefaultLockTimeoutMs = 5000;
+    public const int MinLockTimeoutMs = 0;
+    public const int LockTimeoutCeilingMs = 300000;
+
+    /// <summary>Reads and validates the configuration.</summary>
+    /// <param name="read">Reads one environment variable.</param>
+    /// <param name="requireAuditLog">Whether <c>MSSQL_MCP_AUDIT_LOG</c> is required.</param>
+    /// <exception cref="ConfigException">A required value is missing, or a value is unparsable or out of range.</exception>
+    public static ServerConfig Load(Func<string, string?> read, bool requireAuditLog)
+    {
+        var raw = read(ConnectionStringVariable);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            throw new ConfigException($"{ConnectionStringVariable} is required");
+        }
+
+        SqlConnectionStringBuilder builder;
+        try
+        {
+            builder = new SqlConnectionStringBuilder(raw);
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or KeyNotFoundException or InvalidOperationException)
+        {
+            // The parser's message can quote parts of the string, so it is not passed on.
+            throw new ConfigException($"{ConnectionStringVariable} is not a valid SQL Server connection string");
+        }
+
+        builder.ApplicationIntent = ApplicationIntent.ReadOnly;
+        builder.ApplicationName = ApplicationName;
+
+        var auditLog = read(AuditLogVariable);
+        if (requireAuditLog && string.IsNullOrWhiteSpace(auditLog))
+        {
+            throw new ConfigException($"{AuditLogVariable} is required");
+        }
+
+        return new ServerConfig(
+            builder.ConnectionString,
+            auditLog?.Trim() ?? string.Empty,
+            ReadInt(read, MaxRowsVariable, DefaultMaxRows, MinMaxRows, MaxRowsCeiling),
+            ReadInt(read, MaxCharsVariable, DefaultMaxChars, MinMaxChars, MaxCharsCeiling),
+            ReadInt(read, TimeoutVariable, DefaultTimeoutSeconds, MinTimeoutSeconds, TimeoutCeilingSeconds),
+            ReadInt(read, LockTimeoutVariable, DefaultLockTimeoutMs, MinLockTimeoutMs, LockTimeoutCeilingMs));
+    }
+
+    /// <summary>Every setting except the connection string, which can hold a password and is never printed.</summary>
+    public override string ToString()
+    {
+        var text = new StringBuilder("ServerConfig { ");
+        PrintMembers(text);
+        return text.Append(" }").ToString();
+    }
+
+    private bool PrintMembers(StringBuilder builder)
+    {
+        builder.Append(CultureInfo.InvariantCulture, $"ConnectionString = <not shown>, AuditLogPath = {AuditLogPath}, ");
+        builder.Append(CultureInfo.InvariantCulture, $"MaxRows = {MaxRows}, MaxChars = {MaxChars}, ");
+        builder.Append(CultureInfo.InvariantCulture, $"TimeoutSeconds = {TimeoutSeconds}, LockTimeoutMs = {LockTimeoutMs}");
+        return true;
+    }
+
+    private static int ReadInt(Func<string, string?> read, string name, int defaultValue, int min, int max)
+    {
+        var text = read(name);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return defaultValue;
+        }
+
+        if (!int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+        {
+            throw new ConfigException($"{name} must be a whole number from {min} to {max}");
+        }
+
+        if (value < min || value > max)
+        {
+            throw new ConfigException($"{name} must be from {min} to {max}");
+        }
+
+        return value;
+    }
+}

@@ -1,0 +1,209 @@
+# Security
+
+## Threat model
+
+The attacker is the assistant: a model that was prompt-injected (for example by text stored in a table it read) or
+that simply makes a mistake. It can call the three tools with any arguments, as often as it likes. The goal is that
+it cannot change the database, given the gate (one plain SELECT), the transaction that is always rolled back, and a
+login that passes the permission check (see the README section "What `check-login` refuses" for the classes it
+inspects and those it does not); that it cannot read outside the connected database; and that it cannot get data
+back from a call before that call's audit line is written. The line is appended after the SQL has run: when it
+cannot be written, the query has still run, and the call fails with no data. A call still running when the server
+exits with code 6 may have no audit line and returns no data.
+
+Out of scope: a database administrator, anyone who can change the server's binaries or its configuration, and anyone
+who can write the audit file. They can do more than this server can stop.
+
+## Two layers
+
+1. **The gate** (`src/MssqlReadOnlyMcp.Gate`). Before anything is sent, the SQL text of `run_query` is parsed with
+   ScriptDom. It must be exactly one plain SELECT, and every node in its syntax tree must be on a hand-written
+   allowlist of node types and function names. Checks on the whole text and on the token stream can only refuse,
+   never allow. A refused call opens no connection.
+2. **The login's own permissions.** At start the server asks SQL Server what the login may do and refuses to start
+   on any finding of the check described below (`src/MssqlReadOnlyMcp/PermissionCheck.cs`). So a write to the
+   connected database's tables, views, sequences, schemas or synonyms that got past the gate would still be refused
+   by SQL Server. The check skips objects that ship with SQL Server (`is_ms_shipped`) and looks at no other database,
+   so temporary tables and system procedures granted to `public` are stopped by the gate only.
+
+`run_query` also runs inside a transaction that is always rolled back. That is not counted as a layer: a rollback
+does not undo every effect. After the text has run, a second result set (`MultipleResultSets`) or a reported row
+change (`RowsChanged`) fails the call with no data. These are diagnostics, not a barrier: the server has already
+executed the text, and when the first result set was truncated the command is cancelled before either can be seen
+(`ValueTypeTests`, `Limit_a_write_whose_first_result_set_is_truncated_is_not_seen_and_its_rows_are_returned_rolled_back`).
+
+### What the login check covers
+
+The check is an allowlist over the login's effective permissions at server and database scope
+(`sys.fn_my_permissions`), plus a one-by-one question for write, alter, control and ownership rights on user objects
+below database scope; a NULL answer is a finding, never a pass (`src/MssqlReadOnlyMcp/PermissionCheck.cs`). It
+inspects the server and the connection's database only, and some object classes not at all. The full lists of what
+it refuses and what it does not inspect, why synonyms are asked and where that question over-reports, and the
+platform note are in the README section "What `check-login` refuses"; read them before you rely on a pass.
+
+## What each test class proves
+
+Gate (`tests/MssqlReadOnlyMcp.Gate.Tests`, no database needed):
+
+- `RegressionTableTests`: each row is a SQL text, allowed or refused, with the expected reason (71 allowed and 247
+  refused rows at the time of writing). The refused rows replay the publicly reported bypass classes (stacked
+  statements, `GO`, `EXEC` of a string, DML in or after a CTE, conditional and nested comments, text hidden after a
+  line comment, ODBC escapes, invisible and separator characters, noncharacters) and every statement family a
+  read-only gate must refuse.
+- `StatementTypeTests`: generated over the ScriptDom assembly; exactly one statement type is accepted, and a node
+  type that a later ScriptDom version adds cannot pass silently. It also asserts that the loaded ScriptDom file is
+  version 18.0.140.0 or later (NuGet 180.140.0).
+- `TablesTests`, `LimitsTests` (file `TablesAndLimitsTests.cs`): the referenced-table list, deep nesting without a crash, the size ceiling, and that the
+  gate never throws.
+
+Audit (`tests/MssqlReadOnlyMcp.Audit.Tests`, no database needed):
+
+- `AuditLogTests`: field order, hash, fail-closed on a failed write (the log stays poisoned), reopen continues the
+  chain, a second writer is refused.
+- `AuditVerifierTests`: changed, deleted, swapped, inserted, duplicated and malformed lines are found; tail
+  truncation is not found, by design.
+- `AuditCanonicalTests`: compares every byte of one line, built by hand in the test without the library's
+  serialiser, with what the library writes, for a SQL text that holds unassigned, private-use, noncharacter,
+  separator, control and Turkish characters. It also shows that a line written with another escaping (an escape
+  where raw UTF-8 is canonical, upper-case hex, a raw U+2028) fails verification as `NotCanonical`. It runs on the
+  .NET runtime of the test run only; no test runs the format on a second runtime.
+- `AuditLockFlushAndLimitTests`: the file is flushed to disk before `Append` returns, the line length limit, and two
+  tests that start a PowerShell 7 child process: while the child holds the `.lock` file, opening the log fails; while
+  this process has the log open, the child cannot take the lock (nor, on Windows, open the log for writing) but can
+  read the log.
+
+Integration (`tests/MssqlReadOnlyMcp.IntegrationTests`, a real SQL Server in a container; passed on 2026-11-12 on
+the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
+
+- `GateRefusalTests`: refused statements open no connection, create no command, and leave every table, the
+  sequence, the object catalogue and the logins unchanged. A write sent past the gate on purpose is refused by
+  SQL Server itself.
+- `ExtendedEventsTests`: an Extended Events session filtered on the reader login. The refused set leaves no batch,
+  RPC or login event from the reader; an allowed query and a write sent past the gate both appear in the trace.
+- `DifferentialTests`: every allowed regression row runs on the engine as the reader, or fails only because a name
+  does not exist. Listed exceptions, each with the exact error: three look-alike quote and full-width parenthesis
+  rows the server refuses while parsing, and on SQL Server 2019 the rows that use syntax 2019 lacks
+  (`IS DISTINCT FROM`, `WINDOW`, `TRIM(LEADING ...)`, `DATETRUNC`, `GREATEST`, `LEAST`).
+- `ParserVersusServerLexerTests`: the 335 lexer cases described below, as a permanent test.
+- `PermissionCheckTests`: the reader passes; a `db_datareader` member (also for `SELECT` on the database), single
+  UPDATE and column UPDATE grants, `db_datawriter`, `db_owner`, `sa`, IMPERSONATE, ALTER ANY ROLE, `securityadmin`,
+  EXECUTE on a procedure, UPDATE on a sequence, `db_denydatawriter`, ALTER TRACE, BACKUP DATABASE, UNMASK, TAKE
+  OWNERSHIP on a role and UPDATE on a synonym (`UPDATE on synonym [dbo].[CustomerAlias]`) are refused, each named by
+  its finding; how a NULL answer's finding is printed (the NULL
+  path in the query has no test).
+- `AuditTests`: one audit line per call plus one startup line, no data when the audit file fails, a `TooLong` text
+  is not recorded, and shutdown waits for a call in flight.
+- `CapsTests`: row cap, character cap, cell cut, command timeout, lock timeout.
+- `ValueTypeTests`: xml as text with the cell cut, `hierarchyid` as a placeholder, binary counting up to 1 MiB and
+  `long_value` past it, the character cap with a `long_value` ending, `QUOTED_IDENTIFIER ON` and `NOCOUNT OFF`, the
+  reader as deadlock victim; text sent past the gate as a `db_datawriter` member fails as `RowsChanged` or
+  `MultipleResultSets` with nothing changed, also when the instance's `user options` turn NOCOUNT on, and a write
+  whose first result set is truncated is not seen (its returned rows are values of a change that was rolled back);
+  with an unbroken ownership chain, `UPDATE` granted on a synonym alone changes the table it names, sent past the
+  gate it fails as `RowsChanged` (`Update_grant_on_a_synonym_alone_lets_the_login_change_the_table_it_names`).
+- `LargeValueTests`: a 200,000,000-character value is cut, ends the result as `long_value` and is never held whole
+  (asserted: less than 64 MiB allocated), while its rest still crosses the network (asserted).
+- `SchemaToolTests`: the schema tools match the database; hostile or foreign names are answered as not found;
+  argument limits; names with invisible characters refused; a table without a grant is not visible; the character
+  cap; tools stay in the checked database.
+- `ErpScaleTests`: `list_tables` and the startup check on 20,000 tables.
+- `ServerConfigTests`: the configuration's text form leaves out the connection string.
+- `StdioServerTests`: the built server as a child process over stdio; start with `sa` exits 3; a login whose only
+  finding widens reading is refused with the startup and `check-login` texts; the commands' exit codes; every failed
+  call reaches the client with `isError` and its reason word first, once
+  (`Every_failed_call_reaches_the_client_as_an_error_whose_text_starts_with_its_reason_word`); a connection string
+  the client library rejects; a second server on the same audit file; calls the SDK rejects are audited and logged;
+  end of input exits 0, and a call in flight at end of input, even one that outlasts the drain window
+  (`MSSQL_MCP_TIMEOUT_SECONDS` + 10 s), holds the process until it ends and writes its audit line; the login
+  script; `sys.databases` visibility with and without `DENY VIEW ANY DATABASE`; no password in any result, stderr
+  line or audit file.
+
+## Where the parser and the server read text differently
+
+Method: 335 SQL texts were sent to SQL Server 2019 CU32 (15.0.4510.2) and SQL Server 2022 CU27 (16.0.4295.3), each as
+one command, and parsed by ScriptDom 180.140.0 with the same grammar the gate uses. Round 1 (280 texts) puts each of
+31 characters (controls, Unicode spaces, format characters, U+FFFD, private use, lone surrogates, a surrogate pair)
+in eight positions: between keyword and value, between two statements, inside an unquoted name, inside a line
+comment, inside a string literal, inside a bracketed and a double-quoted name, and first in the text; plus 32
+constructs (`GO`, full-width keywords and punctuation, look-alike quotes). Round 2 (55 texts) adds `--(*`, ODBC
+brace escapes, noncharacters, names that differ only by an invisible character, and Unicode characters placed around comment
+starts. For each text the server's result sets and first column name were compared with the statements and the
+first column name ScriptDom saw. 2019 and 2022 gave the same outcome on every text.
+
+The same 335 texts are the permanent test `ParserVersusServerLexerTests`
+(`tests/MssqlReadOnlyMcp.IntegrationTests/ParserVersusServerLexerCases.cs`), which also runs on SQL Server 2025.
+The test asserts the split exactly, the same on 2019, 2022 and 2025: 269 refused by the gate, 61 allowed and read
+the same by the server, 5 allowed and refused by the server.
+
+| Class | SQL Server | ScriptDom | Gate |
+| --- | --- | --- | --- |
+| Line comment end | ends only at CR or LF | ends only at CR or LF | refuses a line comment holding other controls or U+2028, U+2029 |
+| U+0000 outside literals | whitespace | whitespace | refused |
+| Lone surrogate | arrives as U+FFFD | reads the surrogate | text refused before parsing |
+| `GO` on its own line | reads it as a column alias, runs both statements | batch separator | refused (`NotSingleBatch`) |
+| U+200D and U+FEFF in names | identifier characters; `a<U+200D>b`, `[a<U+200D>b]` and the same with U+FEFF resolve to the column `ab` | identifier characters (U+200B, by contrast, is whitespace to it) | refused, also inside bracketed and quoted names |
+| Look-alike quotes (U+FF07, U+2019) and full-width parentheses | syntax error | identifier characters | allowed; the server refuses it, nothing runs |
+| `--(*` | syntax error | syntax error | refused as a token |
+
+Limits of this measurement:
+
+- Only the default collation and the default compatibility level of each image were measured.
+- Whether Microsoft.Data.SqlClient or the server replaces a lone surrogate with U+FFFD was not isolated.
+- The gate's check for unassigned code points follows the Unicode tables of the .NET runtime in use.
+- SQL Server 2025 runs the permanent test but was not part of the original measurement.
+
+## Known limits
+
+- **Synonyms and views can point elsewhere.** The gate sees a one-part or two-part name. A synonym can point to
+  another database or, through a linked server, to another server; a view can read tables the login has no SELECT
+  on through an ownership chain; and a view or a computed column can call a user-defined function, which the gate
+  refuses only when it is written in the query text. The login check asks for rights on a synonym itself but does
+  not follow synonyms, views or computed columns to what they read. None of this reading has a test here. Grant
+  SELECT only on objects whose content you accept the assistant reading, and check synonyms, views and computed
+  columns before you grant them.
+- **Catalogue views are ordinary names to the gate.** `sys.objects` or `INFORMATION_SCHEMA.TABLES` pass the gate as
+  two-part names. SQL Server's metadata visibility shows the reader the user objects it holds a permission on, plus
+  the names of objects that ship with SQL Server (`is_ms_shipped`); a user table without a grant is not in
+  `sys.objects` (`SchemaToolTests`, `Table_without_a_grant_is_not_found_not_listed_and_not_in_sys_objects`).
+  Database names are different: `public` holds `VIEW ANY DATABASE` by default, so `sys.databases` lists every
+  database on the instance, also those the login has no user in (`StdioServerTests`,
+  `Reader_sees_in_sys_databases_a_database_it_has_no_user_in`). Optional hardening, not in the login script:
+  `DENY VIEW ANY DATABASE TO <login>` leaves only `master`, `tempdb` and the connected database visible, and
+  `check-login` and the tools keep working (`Deny_view_any_database_hides_other_databases_and_the_server_still_works`).
+- **The audit `tables` field is a reading aid.** It lists names as written. SQL Server may resolve a differently
+  spelled name to the same object; full-width letters and some other characters were not measured. `sql` and
+  `sql_sha256` are the authoritative record. A `TooLong` text and a refused name argument are not recorded.
+- **CPU, memory and tempdb use are bounded only by the command timeout.** A heavy join or sort can load the server
+  until the timeout ends it. The server does not limit how many calls run at once. The server-side answer is
+  Resource Governor: put the login in a workload group with its own limits (check that your SQL Server edition
+  offers it).
+- **Long values still cross the network.** A value that ends the result as `long_value` is never held whole, but
+  SQL Server still sends it in full (README, "Result limits"; `LargeValueTests`). That read limit holds for text and
+  binary values. An xml value with one very large text node, or a large CLR value (`geography`, `geometry`,
+  `hierarchyid`), may be read whole into memory by the client library before it is cut or named. Not measured here.
+- **Locks.** The session waits at most the lock timeout and runs at low deadlock priority; under READ COMMITTED its
+  own shared locks can still make a writer wait, up to the command timeout (README, "What it promises").
+- **Syntax newer than the server.** The gate parses with `TSql170Parser` (the package's parser for version 17.0;
+  the newer `TSql180Parser` is not used). On SQL Server 2019, syntax added in 2022 passes the gate and fails on the
+  server with a syntax error, or with error 195 for `DATETRUNC`, `GREATEST` and `LEAST` (`DifferentialTests`,
+  `NewIn2022`); nothing runs.
+- **Audit limits.** The chain shows edits, deletions and reordering inside the file. It does not show removal of
+  the newest lines or a full rewrite, unless the last hash is copied somewhere the writer cannot write. The hash
+  has no key. The SQL text, literals included, is stored in plain text. Timestamps come from the host clock. On
+  Linux the file lock is advisory, and a crash just after the file is created can lose it. The full text is in the
+  `AuditLog` class documentation and in the README.
+- **Data leaves the building.** Rows, table and column names, and SQL Server error text (for classes 11 to 16,
+  under any reason, the server's message, which can name objects or quote a value) go to the AI vendor. Read-only
+  does not change that. Choose what the login may read with `scripts/create-readonly-login.sql`.
+- **Secrets on the client side.** The connection string lives in the client's environment or configuration file.
+  The server never prints or audits it, but anyone who can read that environment or file can read the password.
+- **Idle sessions stay open.** The server does not change the client library's connection pooling, so idle
+  sessions of the login stay open on SQL Server between calls.
+
+## Reporting a problem
+
+Report it privately through GitHub private vulnerability reporting: the "Report a vulnerability" button under the
+Security tab of <https://github.com/oguzhanpisgin/mssql-readonly-mcp>. Please do not open a public issue for it.
+
+Please include the report format from the README section "Try to break it". Do not test against a database you are
+not allowed to test.
