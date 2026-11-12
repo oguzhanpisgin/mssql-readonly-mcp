@@ -33,6 +33,10 @@ internal sealed class SqlGateway(string connectionString, int lockTimeoutMs)
         {
             Interlocked.Increment(ref connectionsOpened);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            // Checked here rather than left to SqlClient: a call past its deadline sends no further command.
+            cancellationToken.ThrowIfCancellationRequested();
+
             // NOCOUNT OFF whatever the instance's 'user options' say: the rows-changed check reads the row counts.
             var settings = string.Create(
                 CultureInfo.InvariantCulture,
@@ -43,7 +47,7 @@ internal sealed class SqlGateway(string connectionString, int lockTimeoutMs)
         }
         catch
         {
-            await connection.DisposeAsync().ConfigureAwait(false);
+            await BlockingSteps.CloseAsync(connection, null, null, cancellationToken).ConfigureAwait(false);
             throw;
         }
     }

@@ -160,7 +160,9 @@ static async Task<int> RunServerAsync()
 
         // Shutdown order: the host stops (end of standard input or Ctrl+C), the calls still running finish and write
         // their audit lines, then the host is disposed, then the audit log (the enclosing using). The host is started
-        // and stopped here rather than with RunAsync, which disposes it before the drain could run.
+        // and stopped here rather than with RunAsync, which disposes it before the drain could run. The clean-up of a call
+        // already answered at its limit (ToolService.AbandonedCleanups) is not waited for: it runs on background threads,
+        // and SQL Server rolls the session back when the process closes its connection.
         using var host = builder.Build();
         var service = host.Services.GetRequiredService<ToolService>();
         await host.StartAsync();

@@ -86,12 +86,15 @@ internal static class SchemaQueries
     public static async Task<SchemaResult> ListTablesAsync(
         SqlGateway gateway, string? schema, string? nameFilter, int maxChars, int timeoutSeconds, CancellationToken cancellationToken)
     {
-        await using var connection = await gateway.OpenSessionAsync(timeoutSeconds, cancellationToken).ConfigureAwait(false);
-        await using var command = gateway.CreateCommand(connection, ListSql, null, timeoutSeconds);
+        // The reader, command and connection close on a thread of their own (BlockingSteps) when the scope ends.
+        await using var session = new SessionScope(
+            await gateway.OpenSessionAsync(timeoutSeconds, cancellationToken).ConfigureAwait(false), cancellationToken);
+        var command = session.Command = gateway.CreateCommand(session.Connection, ListSql, null, timeoutSeconds);
         command.Parameters.Add(new SqlParameter("@cap", SqlDbType.Int) { Value = MaxListItems });
         command.Parameters.Add(TextParameter("@schema", schema));
         command.Parameters.Add(TextParameter("@pattern", NamePattern(nameFilter)));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        var reader = session.Reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         var items = new List<(string Schema, string Name, string Kind)>();
         long totalCount = 0;
@@ -272,10 +275,12 @@ internal static class SchemaQueries
     public static async Task<SchemaResult?> DescribeTableAsync(
         SqlGateway gateway, string table, int maxChars, int timeoutSeconds, CancellationToken cancellationToken)
     {
-        await using var connection = await gateway.OpenSessionAsync(timeoutSeconds, cancellationToken).ConfigureAwait(false);
-        await using var command = gateway.CreateCommand(connection, DescribeSql, null, timeoutSeconds);
+        await using var session = new SessionScope(
+            await gateway.OpenSessionAsync(timeoutSeconds, cancellationToken).ConfigureAwait(false), cancellationToken);
+        var command = session.Command = gateway.CreateCommand(session.Connection, DescribeSql, null, timeoutSeconds);
         command.Parameters.Add(TextParameter("@name", table));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        var reader = session.Reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {

@@ -28,13 +28,39 @@ internal sealed class ToolService(
     /// <summary>The gate's size cap for <c>run_query</c> text; longer text is refused and never recorded.</summary>
     public static readonly int MaxSqlChars = new GateOptions().MaxSqlChars;
 
+    /// <summary>
+    /// How long a call waits, after its deadline or its client's cancel, for its body to end cleanly before the body is
+    /// abandoned and the call answered. Long enough for a cancel acknowledged at once, a reader close and a rollback on
+    /// a healthy connection; short enough that the answer leaves within 1 s of the limit, the audit append included.
+    /// </summary>
+    internal static readonly TimeSpan Grace = TimeSpan.FromMilliseconds(500);
+
     private int callsInFlight;
+    private int abandonedCleanups;
 
     /// <summary>The connection's database; the gate's <see cref="GateOptions.DefaultDatabase"/>.</summary>
     public string Database => database;
 
-    /// <summary>Calls that have started and not yet finished their audit line.</summary>
+    /// <summary>Calls that have started and not yet been audited and answered.</summary>
     public int CallsInFlight => Volatile.Read(ref callsInFlight);
+
+    /// <summary>
+    /// Calls already audited and answered at their limit (or cancel) whose abandoned body, its clean-up included, has
+    /// not ended yet. Shutdown does not wait for them.
+    /// </summary>
+    public int AbandonedCleanups => Volatile.Read(ref abandonedCleanups);
+
+    /// <summary>
+    /// Test seam, null outside tests (set only through <c>InternalsVisibleTo</c>): runs on the transaction-start thread
+    /// of <c>run_query</c> right after the transaction started, so a test can hold that step.
+    /// </summary>
+    internal Action? AfterTransactionStart { get; set; }
+
+    /// <summary>
+    /// Test seam, null outside tests (set only through <c>InternalsVisibleTo</c>): runs on the closing thread of
+    /// <c>run_query</c> right before the rollback, so a test can hold that step.
+    /// </summary>
+    internal Action? BeforeRollback { get; set; }
 
     public Task<string> ListTablesAsync(string? schema, string? nameFilter, CancellationToken cancellationToken) =>
         CompleteAsync("list_tables", null, cancellationToken, async (call, callToken) =>
@@ -147,14 +173,36 @@ internal sealed class ToolService(
     /// text exactly as received, alone in its command, inside a transaction that is always rolled back. Internal so
     /// tests can send a statement past the gate on purpose and show that SQL Server itself refuses it.
     /// </summary>
+    /// <remarks>
+    /// The transaction start, the reader close (with or without a cancel), the rollback and the connection close run
+    /// on a thread of their own (<see cref="BlockingSteps"/>); so does an <c>xml</c> read (<see cref="ResultPayload"/>).
+    /// Other synchronous reads of a value (<c>GetValue</c>, <c>GetSqlDecimal</c>) stay on the body's thread-pool thread
+    /// and can wait for the network there when a row is frozen midway. When the call's token was
+    /// cancelled before the session ended (its deadline or the client's cancel reached it), the physical connection is
+    /// discarded rather than returned to the pool, whether or not the rollback succeeded.
+    /// </remarks>
     internal async Task<QueryResult> ExecuteReadAsync(string sql, int rowCap, CancellationToken cancellationToken)
     {
-        await using var connection = await gateway.OpenSessionAsync(config.TimeoutSeconds, cancellationToken).ConfigureAwait(false);
-        var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
-            .ConfigureAwait(false);
+        var connection = await gateway.OpenSessionAsync(config.TimeoutSeconds, cancellationToken).ConfigureAwait(false);
+        SqlTransaction? transaction = null;
+        SqlCommand? command = null;
         try
         {
-            await using var command = gateway.CreateCommand(connection, sql, transaction, config.TimeoutSeconds);
+            // BeginTransactionAsync has no asynchronous implementation in SqlClient: the synchronous start runs on its
+            // own thread. The token is checked explicitly on that thread right before the start, and after it: a call
+            // whose deadline passed while the thread started sends no BEGIN TRAN, and a call whose transaction start
+            // was held past the deadline sends no query. The window between the check and the send cannot be closed:
+            // the deadline can pass in between, and then BEGIN TRAN is sent (and rolled back by EndSession).
+            cancellationToken.ThrowIfCancellationRequested();
+            await BlockingSteps.RunAsync(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
+                AfterTransactionStart?.Invoke();
+            }).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            command = gateway.CreateCommand(connection, sql, transaction, config.TimeoutSeconds);
             var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             QueryResult result;
             bool moreResults;
@@ -168,23 +216,20 @@ internal sealed class ToolService(
             }
             catch
             {
-                command.Cancel();
-                await DisposeQuietlyAsync(reader).ConfigureAwait(false);
+                await CancelAndCloseAsync(command, reader).ConfigureAwait(false);
                 throw;
             }
 
             if (result.Truncated)
             {
                 // Stop the server from producing more rows instead of draining them.
-                command.Cancel();
-                await DisposeQuietlyAsync(reader).ConfigureAwait(false);
+                await CancelAndCloseAsync(command, reader).ConfigureAwait(false);
             }
             else if (moreResults)
             {
                 // The gate passed one statement; a second result set means SQL Server read the text differently.
                 // Nothing is returned.
-                command.Cancel();
-                await DisposeQuietlyAsync(reader).ConfigureAwait(false);
+                await CancelAndCloseAsync(command, reader).ConfigureAwait(false);
                 throw new ToolRefusalException(new ToolFailure(
                     "error",
                     "MultipleResultSets",
@@ -192,7 +237,7 @@ internal sealed class ToolService(
             }
             else
             {
-                await reader.DisposeAsync().ConfigureAwait(false);
+                await BlockingSteps.RunAsync(reader.Dispose).ConfigureAwait(false);
 
                 // RecordsAffected is -1 for a text that only reads. Any other value means a statement changed rows
                 // inside the transaction (it is rolled back below): SQL Server read the text differently from the gate,
@@ -211,21 +256,59 @@ internal sealed class ToolService(
         }
         finally
         {
-            try
-            {
-                transaction.Rollback();
-            }
-            catch (Exception exception) when (exception is InvalidOperationException or SqlException)
-            {
-                // The server already ended the transaction (for example a deadlock victim). The physical connection
-                // is discarded so nothing of this session is reused.
-                SqlConnection.ClearPool(connection);
-            }
-
-            transaction.Dispose();
-            gateway.RecordReceived(connection);
+            await BlockingSteps.RunAsync(() => EndSession(connection, transaction, command, cancellationToken)).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// The end of a <c>run_query</c> session, on its own thread: the command is disposed, the transaction rolled back,
+    /// the bytes counted, the connection closed (discarded when the call's token was cancelled or the rollback failed).
+    /// </summary>
+    private void EndSession(SqlConnection connection, SqlTransaction? transaction, SqlCommand? command, CancellationToken cancellationToken)
+    {
+        try
+        {
+            command?.Dispose();
+            if (transaction is not null)
+            {
+                BeforeRollback?.Invoke();
+                try
+                {
+                    transaction.Rollback();
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or SqlException)
+                {
+                    // The server already ended the transaction (for example a deadlock victim). The physical connection
+                    // is discarded so nothing of this session is reused.
+                    SqlConnection.ClearPool(connection);
+                }
+
+                transaction.Dispose();
+            }
+
+            gateway.RecordReceived(connection);
+        }
+        finally
+        {
+            BlockingSteps.DiscardIfCancelled(connection, cancellationToken);
+            connection.Dispose();
+        }
+    }
+
+    /// <summary>Cancels the command, then closes its reader, on a thread of their own.</summary>
+    private static Task CancelAndCloseAsync(SqlCommand command, SqlDataReader reader) =>
+        BlockingSteps.RunAsync(() =>
+        {
+            command.Cancel();
+            try
+            {
+                reader.Dispose();
+            }
+            catch (SqlException)
+            {
+                // Closing a cancelled command reports the cancellation; the rows already read are complete.
+            }
+        });
 
     /// <summary>
     /// Counts a call as in flight until the returned handle is disposed; <see cref="DrainAsync"/> waits for the count
@@ -369,6 +452,12 @@ internal sealed class ToolService(
     /// payload or throws the error. The body gets a token that ends at the deadline (<see cref="ServerConfig.TimeoutSeconds"/>
     /// after the call started) or when <paramref name="cancellationToken"/>, the client's, is cancelled. SqlClient's
     /// <c>CommandTimeout</c> limits each network read only; the deadline limits the call.
+    /// <para>
+    /// The body runs as its own task, raced against the deadline. A body that has not ended, its clean-up included,
+    /// <see cref="Grace"/> after the deadline (or after the client's cancel) is abandoned: the call is audited and
+    /// answered as <c>Timeout</c> (or <c>Cancelled</c>) at once, the body's result is dropped, and its clean-up goes on
+    /// in the background (<see cref="AbandonedCleanups"/>) without holding the answer.
+    /// </para>
     /// </summary>
     private async Task<string> CompleteAsync(
         string tool, string? sql, CancellationToken cancellationToken, Func<CallState, CancellationToken, Task<string>> body)
@@ -379,33 +468,54 @@ internal sealed class ToolService(
         var call = new CallState { Sql = sql };
         string? payload = null;
         ToolFailure? failure = null;
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(config.TimeoutSeconds));
-        try
+        var limit = TimeSpan.FromSeconds(config.TimeoutSeconds);
+
+        // Not disposed here when the body is abandoned: the body still uses its token until it ends.
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(limit);
+
+        // Off this flow, so the body's synchronous start (the gate, a pooled open that completes at once) cannot keep
+        // the race below from starting.
+        var work = Task.Run(() => body(call, deadline.Token), CancellationToken.None);
+        if (await EndsInTimeAsync(work, started, limit + Grace, cancellationToken).ConfigureAwait(false))
         {
-            payload = await body(call, deadline.Token).ConfigureAwait(false);
+            var deadlineReached = deadline.IsCancellationRequested;
+            deadline.Dispose();
+            try
+            {
+                payload = await work.ConfigureAwait(false);
+            }
+            catch (Exception exception) when (
+                exception is not ToolRefusalException && deadlineReached && !cancellationToken.IsCancellationRequested)
+            {
+                // The deadline ended the call, not the client: answered and audited as Timeout, with the command
+                // timeout's text.
+                failure = ToolErrors.CallTimeout;
+            }
+            catch (Exception exception)
+            {
+                failure = ToolErrors.FromException(exception);
+            }
         }
-        catch (Exception exception) when (
-            exception is not ToolRefusalException && deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        else
         {
-            // The deadline ended the call, not the client: answered and audited as Timeout, with the command
-            // timeout's text.
-            failure = ToolErrors.CallTimeout;
-        }
-        catch (Exception exception)
-        {
-            failure = ToolErrors.FromException(exception);
+            failure = cancellationToken.IsCancellationRequested
+                ? ToolErrors.FromException(new OperationCanceledException(cancellationToken))
+                : ToolErrors.CallTimeout;
+            Abandon(work, deadline);
         }
 
+        // What the body recorded up to now; an abandoned body can no longer change it.
+        var recorded = call.Seal();
         var durationMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         var entry = new AuditEntry(
             tool,
             failure?.Decision ?? "allowed",
             failure?.Reason ?? "Allowed",
-            call.Sql,
-            call.Tables,
-            payload is null ? null : call.Rows,
-            payload is not null && call.Truncated,
+            recorded.Sql,
+            recorded.Tables,
+            payload is null ? null : recorded.Rows,
+            payload is not null && recorded.Truncated,
             durationMs,
             payload is null ? null : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload))));
 
@@ -430,16 +540,50 @@ internal sealed class ToolService(
         return payload!;
     }
 
-    private static async Task DisposeQuietlyAsync(SqlDataReader reader)
+    /// <summary>
+    /// Waits until <paramref name="work"/> ends, or until <paramref name="bound"/> after <paramref name="started"/>, or
+    /// until <see cref="Grace"/> after the client's cancel, whichever comes first. True when the work ended first.
+    /// The waits are timers of their own, not callbacks of the body's token, so nothing SqlClient does when that token
+    /// is cancelled can delay them.
+    /// </summary>
+    private static async Task<bool> EndsInTimeAsync(Task work, long started, TimeSpan bound, CancellationToken clientToken)
     {
-        try
-        {
-            await reader.DisposeAsync().ConfigureAwait(false);
-        }
-        catch (SqlException)
-        {
-            // Closing a cancelled command reports the cancellation; the rows already read are complete.
-        }
+        var remaining = bound - Stopwatch.GetElapsedTime(started);
+        using var cutoff = new CancellationTokenSource(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+        var stop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var onCutoff = cutoff.Token.UnsafeRegister(static state => ((TaskCompletionSource)state!).TrySetResult(), stop);
+
+        // Disposed before the cutoff source (declared after it); disposal waits for a callback already running.
+        using var onClientCancel = clientToken.UnsafeRegister(
+            _ =>
+            {
+                var left = bound - Stopwatch.GetElapsedTime(started);
+                cutoff.CancelAfter(left < Grace ? (left > TimeSpan.Zero ? left : TimeSpan.Zero) : Grace);
+            },
+            null);
+
+        return await Task.WhenAny(work, stop.Task).ConfigureAwait(false) == work;
+    }
+
+    /// <summary>
+    /// Lets an abandoned body end in the background: its result and any exception are observed and dropped (never
+    /// logged, never sent), and the deadline source it uses lives until it ends.
+    /// </summary>
+    private void Abandon(Task work, CancellationTokenSource deadline)
+    {
+        Interlocked.Increment(ref abandonedCleanups);
+        _ = work.ContinueWith(
+            static (ended, state) =>
+            {
+                var (service, source) = ((ToolService, CancellationTokenSource))state!;
+                _ = ended.Exception;
+                source.Dispose();
+                Interlocked.Decrement(ref service.abandonedCleanups);
+            },
+            (this, deadline),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private ToolFailure NotFound() =>
@@ -458,15 +602,60 @@ internal sealed class ToolService(
         }
     }
 
+    /// <summary>
+    /// What a body records for its audit line. <see cref="Seal"/> takes the values the line is built from; a body still
+    /// running after that (an abandoned one) changes nothing any more.
+    /// </summary>
     private sealed class CallState
     {
+        private readonly Lock gate = new();
+        private bool sealedForAudit;
+        private string? sql;
+        private IReadOnlyList<string> tables = [];
+        private int? rows;
+        private bool truncated;
+
         /// <summary>The SQL text for the audit line; null when it is not recorded.</summary>
-        public string? Sql { get; set; }
+        public string? Sql
+        {
+            set => Set(() => sql = value);
+        }
 
-        public IReadOnlyList<string> Tables { get; set; } = [];
+        public IReadOnlyList<string> Tables
+        {
+            set => Set(() => tables = value);
+        }
 
-        public int? Rows { get; set; }
+        public int? Rows
+        {
+            set => Set(() => rows = value);
+        }
 
-        public bool Truncated { get; set; }
+        public bool Truncated
+        {
+            set => Set(() => truncated = value);
+        }
+
+        public Recorded Seal()
+        {
+            lock (gate)
+            {
+                sealedForAudit = true;
+                return new Recorded(sql, tables, rows, truncated);
+            }
+        }
+
+        private void Set(Action assign)
+        {
+            lock (gate)
+            {
+                if (!sealedForAudit)
+                {
+                    assign();
+                }
+            }
+        }
     }
+
+    private sealed record Recorded(string? Sql, IReadOnlyList<string> Tables, int? Rows, bool Truncated);
 }

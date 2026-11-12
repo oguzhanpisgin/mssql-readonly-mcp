@@ -92,6 +92,8 @@ internal static class ResultPayload
                 "error", "ResultTooWide", "ResultTooWide: the column list alone is larger than the character cap."));
         }
 
+        // Every xml read of this result runs on this one thread of its own (started at the first xml value).
+        using var xmlReads = new StepThread();
         var rowCount = 0;
         string? truncatedReason = null;
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -104,7 +106,7 @@ internal static class ResultPayload
 
             var separator = rowCount == 0 ? 0 : 1;
             var room = maxChars - payload.Length - separator - endReserve;
-            var (row, longValue) = await ReadRowAsync(reader, fieldCount, room, cancellationToken).ConfigureAwait(false);
+            var (row, longValue) = await ReadRowAsync(reader, fieldCount, room, xmlReads, cancellationToken).ConfigureAwait(false);
             if (row is null || row.Length > room)
             {
                 truncatedReason = ReasonMaxChars;
@@ -142,7 +144,7 @@ internal static class ResultPayload
     /// of the row already cannot fit in <paramref name="room"/> characters: the rest of the row is not read.
     /// </summary>
     private static async Task<(string? Json, bool LongValue)> ReadRowAsync(
-        SqlDataReader reader, int fieldCount, int room, CancellationToken cancellationToken)
+        SqlDataReader reader, int fieldCount, int room, StepThread xmlReads, CancellationToken cancellationToken)
     {
         var cells = new object?[fieldCount];
         var longValue = false;
@@ -153,7 +155,7 @@ internal static class ResultPayload
         long least = 2 + (fieldCount - 1) + fieldCount;
         for (var i = 0; i < fieldCount; i++)
         {
-            var (cell, isLong) = await ReadCellAsync(reader, i, cancellationToken).ConfigureAwait(false);
+            var (cell, isLong) = await ReadCellAsync(reader, i, xmlReads, cancellationToken).ConfigureAwait(false);
             cells[i] = cell;
             least += cell is string text ? text.Length + 1 : 0;
             if (least > room)
@@ -190,7 +192,8 @@ internal static class ResultPayload
     /// One cell's value, and whether it was longer than <see cref="MaxBinaryCount"/> (bytes for binary, characters
     /// for text and xml). Such a value is read no further: its rest stays on the wire until the command is cancelled.
     /// </summary>
-    private static async Task<(object? Value, bool LongValue)> ReadCellAsync(SqlDataReader reader, int ordinal, CancellationToken cancellationToken)
+    private static async Task<(object? Value, bool LongValue)> ReadCellAsync(
+        SqlDataReader reader, int ordinal, StepThread xmlReads, CancellationToken cancellationToken)
     {
         if (await reader.IsDBNullAsync(ordinal, cancellationToken).ConfigureAwait(false))
         {
@@ -227,27 +230,9 @@ internal static class ResultPayload
 
         if (type == typeof(string) && reader.GetDataTypeName(ordinal) == "xml")
         {
-            // GetTextReader refuses xml; GetChars reads it as text from the given offset.
-            var head = new char[MaxCellChars + 1];
-            var scratch = new char[8192];
-            long total = 0;
-            long read;
-            while (total <= MaxBinaryCount)
-            {
-                // GetChars is synchronous and takes no token: the deadline is checked between its calls.
-                cancellationToken.ThrowIfCancellationRequested();
-                var target = total < head.Length ? head : scratch;
-                var offset = total < head.Length ? (int)total : 0;
-                read = reader.GetChars(ordinal, total, target, offset, target.Length - offset);
-                if (read <= 0)
-                {
-                    break;
-                }
-
-                total += read;
-            }
-
-            return CutText(head, total);
+            // GetChars is synchronous: the whole value is read on the result's own thread for xml reads, so a stalled
+            // connection holds that thread and not one of the thread pool's.
+            return await xmlReads.RunAsync(() => ReadXml(reader, ordinal, cancellationToken)).ConfigureAwait(false);
         }
 
         if (type == typeof(string) || type == typeof(char[]))
@@ -301,6 +286,31 @@ internal static class ResultPayload
             string s when s.Length > MaxCellChars => (string.Concat(s.AsSpan(0, MaxCellChars), CellCutMarker), false),
             _ => (value, false),
         };
+    }
+
+    /// <summary>An <c>xml</c> value as text, read with the synchronous <c>GetChars</c> (GetTextReader refuses xml).</summary>
+    private static (object? Value, bool LongValue) ReadXml(SqlDataReader reader, int ordinal, CancellationToken cancellationToken)
+    {
+        var head = new char[MaxCellChars + 1];
+        var scratch = new char[8192];
+        long total = 0;
+        long read;
+        while (total <= MaxBinaryCount)
+        {
+            // GetChars is synchronous and takes no token: the deadline is checked between its calls.
+            cancellationToken.ThrowIfCancellationRequested();
+            var target = total < head.Length ? head : scratch;
+            var offset = total < head.Length ? (int)total : 0;
+            read = reader.GetChars(ordinal, total, target, offset, target.Length - offset);
+            if (read <= 0)
+            {
+                break;
+            }
+
+            total += read;
+        }
+
+        return CutText(head, total);
     }
 
     /// <summary>The first characters of a text value of <paramref name="total"/> characters read, cut if needed.</summary>

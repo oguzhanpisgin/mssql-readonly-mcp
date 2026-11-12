@@ -16,7 +16,7 @@ public sealed class CallLimitTests(SqlServerFixture fixture, ITestOutputHelper o
     // combinations that no rewrite can share between rows, next to a 9,000-byte binary value, so every row fills a
     // TDS packet and reaches the client on its own. Each read waits far less than the 2 s limit; all 300 orders take
     // far more (30 rows already took 13.9 s before the call had one time limit).
-    private const string SlowRowsSql =
+    internal const string SlowRowsSql =
         "SELECT TOP (300) o.OrderId, CAST(REPLICATE(CAST(0x00 AS varbinary(max)), 9000) AS varbinary(max)) AS b, " +
         "(SELECT COUNT_BIG(*) FROM dbo.OrderLines AS a CROSS JOIN dbo.OrderLines AS b2 " +
         "CROSS JOIN (SELECT TOP (16) OrderId, LineNumber FROM dbo.OrderLines ORDER BY OrderId, LineNumber) AS c " +

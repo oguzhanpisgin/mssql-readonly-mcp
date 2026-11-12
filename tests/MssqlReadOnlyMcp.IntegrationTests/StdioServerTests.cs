@@ -18,7 +18,7 @@ namespace MssqlReadOnlyMcp.IntegrationTests;
 /// R-8: no password in any tool result, stderr capture or audit file of these runs.
 /// </summary>
 [Collection(SqlServerCollection.Name)]
-public sealed class StdioServerTests(SqlServerFixture fixture)
+public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abstractions.ITestOutputHelper output)
 {
     private static readonly string ServerDll = Path.Combine(
         typeof(StdioServerTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
@@ -777,7 +777,7 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
             process.Dispose();
         }
 
-        private async Task<JsonElement> ReadResponseAsync(int id)
+        public async Task<JsonElement> ReadResponseAsync(int id)
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             while (true)
@@ -795,6 +795,12 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
     /// <summary>
     /// A TCP proxy in front of the SQL Server container. It forwards until <see cref="StallNewConnections"/>; after that
     /// it accepts new connections and never answers them, so a connection open waits for its connect timeout.
+    /// <para>
+    /// Each forwarded connection is copied by two pumps (one per direction) that share a valve, so
+    /// <see cref="FreezeEstablished"/> stops both directions of every connection already established (no byte passes
+    /// until <see cref="ReleaseAll"/>) while new connections still forward. <see cref="ServerBytesPerSecond"/> throttles
+    /// what SQL Server sends. No TDS is parsed: the proxy also works on encrypted connections.
+    /// </para>
     /// </summary>
     private sealed class StallingProxy : IAsyncDisposable
     {
@@ -803,9 +809,43 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
         private readonly int targetPort;
         private readonly CancellationTokenSource stop = new();
         private readonly List<TcpClient> clients = [];
+        private readonly List<Valve> valves = [];
         private readonly TaskCompletionSource stalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task accept = Task.CompletedTask;
         private volatile bool stalling;
+        private long serverBytes;
+
+        /// <summary>Bytes per second SQL Server may send through the proxy; 0 for no limit. Read for every chunk.</summary>
+        public int ServerBytesPerSecond { get; set; }
+
+        /// <summary>Bytes forwarded from SQL Server to the client so far, on all connections.</summary>
+        public long ServerBytes => Interlocked.Read(ref serverBytes);
+
+        /// <summary>Stops both directions of every connection still open; returns how many were frozen.</summary>
+        public int FreezeEstablished()
+        {
+            lock (valves)
+            {
+                foreach (var valve in valves)
+                {
+                    valve.Close();
+                }
+
+                return valves.Count;
+            }
+        }
+
+        /// <summary>Lets every frozen connection forward again.</summary>
+        public void ReleaseAll()
+        {
+            lock (valves)
+            {
+                foreach (var valve in valves)
+                {
+                    valve.Open();
+                }
+            }
+        }
 
         private StallingProxy(string targetHost, int targetPort)
         {
@@ -891,12 +931,18 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
                 clients.Add(upstream);
             }
 
+            var valve = new Valve();
+            lock (valves)
+            {
+                valves.Add(valve);
+            }
+
             try
             {
                 await upstream.ConnectAsync(targetHost, targetPort, stop.Token);
                 var down = client.GetStream();
                 var up = upstream.GetStream();
-                await Task.WhenAny(down.CopyToAsync(up, stop.Token), up.CopyToAsync(down, stop.Token));
+                await Task.WhenAny(PumpAsync(down, up, valve, fromServer: false), PumpAsync(up, down, valve, fromServer: true));
             }
             catch (Exception exception) when (exception is OperationCanceledException or IOException or SocketException or ObjectDisposedException)
             {
@@ -904,8 +950,93 @@ public sealed class StdioServerTests(SqlServerFixture fixture)
             }
             finally
             {
+                lock (valves)
+                {
+                    valves.Remove(valve);
+                }
+
                 client.Dispose();
                 upstream.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Copies one direction. The valve is passed before every read and before every write, so a frozen connection
+        /// forwards nothing, not even a chunk read just before the freeze.
+        /// </summary>
+        private async Task PumpAsync(NetworkStream from, NetworkStream to, Valve valve, bool fromServer)
+        {
+            var buffer = new byte[16384];
+            try
+            {
+                while (true)
+                {
+                    await valve.WaitOpenAsync(stop.Token);
+                    var rate = fromServer ? ServerBytesPerSecond : 0;
+                    var size = rate > 0 ? Math.Clamp(rate / 20, 1, buffer.Length) : buffer.Length;
+                    var read = await from.ReadAsync(buffer.AsMemory(0, size), stop.Token);
+                    if (read == 0)
+                    {
+                        return;
+                    }
+
+                    await valve.WaitOpenAsync(stop.Token);
+                    await to.WriteAsync(buffer.AsMemory(0, read), stop.Token);
+                    if (fromServer)
+                    {
+                        Interlocked.Add(ref serverBytes, read);
+                    }
+
+                    if (rate > 0)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds((double)read / rate), stop.Token);
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is OperationCanceledException or IOException or SocketException or ObjectDisposedException)
+            {
+                // The connection ended or the proxy stopped.
+            }
+        }
+
+        /// <summary>Open or closed for both pumps of one connection.</summary>
+        private sealed class Valve
+        {
+            private readonly Lock gate = new();
+            private TaskCompletionSource open = NewOpen();
+
+            public void Close()
+            {
+                lock (gate)
+                {
+                    if (open.Task.IsCompleted)
+                    {
+                        open = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    }
+                }
+            }
+
+            public void Open()
+            {
+                lock (gate)
+                {
+                    open.TrySetResult();
+                }
+            }
+
+            public Task WaitOpenAsync(CancellationToken cancellationToken)
+            {
+                lock (gate)
+                {
+                    return open.Task.WaitAsync(cancellationToken);
+                }
+            }
+
+            private static TaskCompletionSource NewOpen()
+            {
+                var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                source.SetResult();
+                return source;
             }
         }
     }
