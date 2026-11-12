@@ -437,6 +437,338 @@ public sealed class PermissionCheckTests(SqlServerFixture fixture)
         Assert.Equal(expected.Length, finding.ObjectCount);
     }
 
+    [Theory]
+    [InlineData(SqlServerFixture.UserAltererLogin, SqlServerFixture.Database, "ALTER on user [mcp_target_user]")]
+    [InlineData(SqlServerFixture.LoginAltererLogin, SqlServerFixture.Database, "ALTER on login [mcp_target_login]")]
+    [InlineData(SqlServerFixture.EndpointAltererLogin, SqlServerFixture.Database, "ALTER on endpoint [TSQL Default TCP]")]
+    [InlineData(SqlServerFixture.RouteAltererLogin, SqlServerFixture.Database, "ALTER on route [AutoCreatedLocal]")]
+    [InlineData(SqlServerFixture.RouteRoleAltererLogin, SqlServerFixture.Database, "ALTER on route [AutoCreatedLocal]")]
+    [InlineData(SqlServerFixture.NestedRouteAltererLogin, SqlServerFixture.Database, "ALTER on route [AutoCreatedLocal]")]
+    [InlineData(SqlServerFixture.MessageTypeAltererLogin, SqlServerFixture.Database, "ALTER on message type [InvoiceMessage]")]
+    [InlineData(SqlServerFixture.ContractTakerLogin, SqlServerFixture.Database, "TAKE OWNERSHIP on contract [InvoiceContract]")]
+    [InlineData(SqlServerFixture.BindingAltererLogin, SqlServerFixture.Database, "ALTER on remote service binding [InvoiceBinding]")]
+    [InlineData(SqlServerFixture.StoplistTakerLogin, SqlServerFixture.Database, "TAKE OWNERSHIP on full-text stoplist [ShopStoplist]")]
+    [InlineData(SqlServerFixture.PropertyListAltererLogin, SqlServerFixture.Database, "ALTER on search property list [ShopProperties]")]
+    [InlineData(SqlServerFixture.CredentialAltererLogin, SqlServerFixture.Database, "ALTER on database scoped credential [ShopCredential]")]
+    [InlineData(SqlServerFixture.SystemProcedureRunnerLogin, "master", "EXECUTE on object [sys].[xp_regwrite]")]
+    public async Task Right_found_in_the_permission_rows_the_login_can_see_is_named(string login, string database, string expected)
+    {
+        // The login's own grant, a grant to a role it is in (route_admins), or to a role that role is in (route_outer):
+        // the row is read from sys.database_permissions or sys.server_permissions, whatever the class. Built-in
+        // securables (the T-SQL endpoint, the local route, a system extended procedure in master) are asked like user
+        // ones. A right the class rule also finds is named once.
+        var report = await CheckAsync(fixture.ExtraConnectionString(login, database));
+
+        Assert.Equal([expected], report.Findings.Select(f => f.ToString()));
+    }
+
+    [Theory]
+    [InlineData(
+        SqlServerFixture.UserAltererLogin, SqlServerFixture.Database,
+        "ALTER USER [mcp_target_user] WITH DEFAULT_SCHEMA = [guest]; " +
+        "SELECT default_schema_name FROM sys.database_principals WHERE name = N'mcp_target_user';",
+        "guest", "error 15151")]
+    [InlineData(
+        SqlServerFixture.LoginAltererLogin, SqlServerFixture.Database,
+        "ALTER LOGIN [mcp_target_login] WITH DEFAULT_DATABASE = [tempdb]; " +
+        "SELECT default_database_name FROM sys.server_principals WHERE name = N'mcp_target_login';",
+        "tempdb", "error 15151")]
+    [InlineData(
+        SqlServerFixture.RouteAltererLogin, SqlServerFixture.Database,
+        "ALTER ROUTE [AutoCreatedLocal] WITH ADDRESS = N'TCP://10.0.0.1:4022'; " +
+        "SELECT address FROM sys.routes WHERE name = N'AutoCreatedLocal';",
+        "TCP://10.0.0.1:4022", "error 15151")]
+    [InlineData(
+        SqlServerFixture.RouteRoleAltererLogin, SqlServerFixture.Database,
+        "ALTER ROUTE [AutoCreatedLocal] WITH ADDRESS = N'TCP://10.0.0.1:4022'; " +
+        "SELECT address FROM sys.routes WHERE name = N'AutoCreatedLocal';",
+        "TCP://10.0.0.1:4022", "error 15151")]
+    [InlineData(
+        SqlServerFixture.MessageTypeAltererLogin, SqlServerFixture.Database,
+        "ALTER MESSAGE TYPE [InvoiceMessage] VALIDATION = EMPTY; " +
+        "SELECT validation_desc FROM sys.service_message_types WHERE name = N'InvoiceMessage';",
+        "EMPTY", "error 15151")]
+    [InlineData(
+        SqlServerFixture.ContractTakerLogin, SqlServerFixture.Database,
+        "ALTER AUTHORIZATION ON CONTRACT::[InvoiceContract] TO [mcp_contract_taker]; " +
+        "SELECT USER_NAME(principal_id) FROM sys.service_contracts WHERE name = N'InvoiceContract';",
+        "mcp_contract_taker", "error 15151")]
+    [InlineData(
+        SqlServerFixture.BindingAltererLogin, SqlServerFixture.Database,
+        "ALTER REMOTE SERVICE BINDING [InvoiceBinding] WITH ANONYMOUS = OFF; " +
+        "SELECT CONVERT(nvarchar(10), is_anonymous_on) FROM sys.remote_service_bindings WHERE name = N'InvoiceBinding';",
+        "0", "error 15151")]
+    [InlineData(
+        SqlServerFixture.StoplistTakerLogin, SqlServerFixture.Database,
+        "ALTER AUTHORIZATION ON FULLTEXT STOPLIST::[ShopStoplist] TO [mcp_stoplist_taker]; " +
+        "SELECT USER_NAME(principal_id) FROM sys.fulltext_stoplists WHERE name = N'ShopStoplist';",
+        "mcp_stoplist_taker", "error 15151")]
+    [InlineData(
+        SqlServerFixture.CredentialAltererLogin, SqlServerFixture.Database,
+        "ALTER DATABASE SCOPED CREDENTIAL [ShopCredential] WITH IDENTITY = N'other'; " +
+        "SELECT credential_identity FROM sys.database_scoped_credentials WHERE name = N'ShopCredential';",
+        "other", "error 15151")]
+    [InlineData(SqlServerFixture.SystemProcedureRunnerLogin, "master", "EXEC sys.xp_regwrite; SELECT N'ran';", "error 0", "error 229")]
+    public async Task Right_found_in_the_permission_rows_does_what_it_is_named_for_and_the_reader_cannot(
+        string login, string database, string act, string outcome, string readerOutcome)
+    {
+        // Each act runs in a transaction that is rolled back. xp_regwrite is called without arguments (no key or value
+        // is named). The grantee passes the EXECUTE check and the procedure runs: sqlcmd shows no error, and this
+        // client reports "a severe error occurred" with number 0 (measured). That 0 is Microsoft.Data.SqlClient's own
+        // number for the severe error, not SQL Server's, and may change with a client upgrade. The reader is stopped
+        // at the EXECUTE check (229).
+        var reader = database == SqlServerFixture.Database
+            ? fixture.ReaderConnectionString
+            : fixture.ExtraConnectionString(SqlServerFixture.PlainReaderLogin, database);
+
+        Assert.Equal(outcome, await RolledBackAsync(fixture.ExtraConnectionString(login, database), act));
+        Assert.Equal(readerOutcome, await RolledBackAsync(reader, act));
+    }
+
+    [Fact]
+    public async Task Alter_on_an_endpoint_and_on_a_search_property_list_runs_and_the_reader_cannot()
+    {
+        // Neither statement can run in a transaction. STATE = STARTED runs on the running endpoint; whether it changed
+        // anything was not shown. The added search property is removed afterwards.
+        const string endpoint = "ALTER ENDPOINT [TSQL Default TCP] STATE = STARTED; SELECT N'ran';";
+        const string property =
+            "ALTER SEARCH PROPERTY LIST [ShopProperties] ADD N'ProbeProperty' WITH (" +
+            "PROPERTY_SET_GUID = 'F29F85E0-4FF9-1068-AB91-08002B27B3D9', PROPERTY_INT_ID = 99, PROPERTY_DESCRIPTION = N'probe'); " +
+            "SELECT CONVERT(nvarchar(10), COUNT(*)) FROM sys.registered_search_properties WHERE property_name = N'ProbeProperty';";
+        const string removeProperty =
+            "IF EXISTS (SELECT 1 FROM sys.registered_search_properties WHERE property_name = N'ProbeProperty') " +
+            "ALTER SEARCH PROPERTY LIST [ShopProperties] DROP N'ProbeProperty'; SELECT N'removed';";
+
+        Assert.Equal("ran", await OutcomeAsync(fixture.ExtraConnectionString(SqlServerFixture.EndpointAltererLogin), endpoint, rollBack: false));
+        Assert.Equal("error 6004", await OutcomeAsync(fixture.ReaderConnectionString, endpoint, rollBack: false));
+        try
+        {
+            Assert.Equal("1", await OutcomeAsync(fixture.ExtraConnectionString(SqlServerFixture.PropertyListAltererLogin), property, rollBack: false));
+        }
+        finally
+        {
+            await AdminScalarAsync(SqlServerFixture.Database, removeProperty);
+        }
+
+        Assert.Equal("error 30025", await OutcomeAsync(fixture.ReaderConnectionString, property, rollBack: false));
+    }
+
+    [Theory]
+    [InlineData(SqlServerFixture.MessageTypeOwnerLogin, "message type [OwnedMessage]")]
+    [InlineData(SqlServerFixture.ContractOwnerLogin, "contract [OwnedContract]")]
+    [InlineData(SqlServerFixture.BindingOwnerLogin, "remote service binding [OwnedBinding]")]
+    [InlineData(SqlServerFixture.RouteOwnerLogin, "route [OwnedRoute]")]
+    [InlineData(SqlServerFixture.StoplistOwnerLogin, "full-text stoplist [OwnedStoplist]")]
+    [InlineData(SqlServerFixture.PropertyListOwnerLogin, "search property list [OwnedProperties]")]
+    [InlineData(SqlServerFixture.CredentialOwnerLogin, "database scoped credential [OwnedCredential]")]
+    [InlineData(SqlServerFixture.EndpointOwnerLogin, "endpoint [mcp_owned_endpoint]")]
+    public async Task Owner_of_a_securable_no_grant_row_shows_is_named(string login, string securable)
+    {
+        // An owner holds CONTROL without any grant row; the class rule asks every right the class lists, so the owner
+        // is named for ALTER, CONTROL and TAKE OWNERSHIP, as the certificate owner is.
+        var report = await CheckAsync(fixture.ExtraConnectionString(login));
+
+        Assert.Equal(
+            [$"ALTER on {securable}", $"CONTROL on {securable}", $"TAKE OWNERSHIP on {securable}"],
+            report.Findings.Select(f => f.ToString()));
+    }
+
+    [Theory]
+    [InlineData(
+        SqlServerFixture.MessageTypeOwnerLogin,
+        "ALTER MESSAGE TYPE [OwnedMessage] VALIDATION = EMPTY; " +
+        "SELECT validation_desc FROM sys.service_message_types WHERE name = N'OwnedMessage';",
+        "EMPTY", "error 15151")]
+    [InlineData(
+        SqlServerFixture.ContractOwnerLogin,
+        "DROP CONTRACT [OwnedContract]; " +
+        "SELECT CONVERT(nvarchar(10), COUNT(*)) FROM sys.service_contracts WHERE name = N'OwnedContract';",
+        "0", "error 15151")]
+    [InlineData(
+        SqlServerFixture.BindingOwnerLogin,
+        "ALTER REMOTE SERVICE BINDING [OwnedBinding] WITH ANONYMOUS = OFF; " +
+        "SELECT CONVERT(nvarchar(10), is_anonymous_on) FROM sys.remote_service_bindings WHERE name = N'OwnedBinding';",
+        "0", "error 15151")]
+    [InlineData(
+        SqlServerFixture.RouteOwnerLogin,
+        "ALTER ROUTE [OwnedRoute] WITH ADDRESS = N'TCP://10.0.0.3:4022'; " +
+        "SELECT address FROM sys.routes WHERE name = N'OwnedRoute';",
+        "TCP://10.0.0.3:4022", "error 15151")]
+    [InlineData(
+        SqlServerFixture.CredentialOwnerLogin,
+        "ALTER DATABASE SCOPED CREDENTIAL [OwnedCredential] WITH IDENTITY = N'other'; " +
+        "SELECT credential_identity FROM sys.database_scoped_credentials WHERE name = N'OwnedCredential';",
+        "other", "error 15151")]
+    public async Task Owner_of_a_securable_no_grant_row_shows_changes_it_and_the_reader_cannot(
+        string login, string act, string outcome, string readerOutcome)
+    {
+        // Each act runs in a transaction that is rolled back.
+        Assert.Equal(outcome, await RolledBackAsync(fixture.ExtraConnectionString(login), act));
+        Assert.Equal(readerOutcome, await RolledBackAsync(fixture.ReaderConnectionString, act));
+    }
+
+    [Fact]
+    public async Task Owner_of_a_stoplist_a_search_property_list_and_an_endpoint_changes_it_and_the_reader_cannot()
+    {
+        // None of these statements can run in a transaction. Each change is undone afterwards as sa: the stoplist is
+        // created again for its owner, the property removed, the endpoint's port set back. The reader tries first.
+        const string drop =
+            "DROP FULLTEXT STOPLIST [OwnedStoplist]; " +
+            "SELECT CONVERT(nvarchar(10), COUNT(*)) FROM sys.fulltext_stoplists WHERE name = N'OwnedStoplist';";
+        const string restoreStoplist =
+            "IF NOT EXISTS (SELECT 1 FROM sys.fulltext_stoplists WHERE name = N'OwnedStoplist') BEGIN " +
+            "CREATE FULLTEXT STOPLIST [OwnedStoplist]; " +
+            "ALTER AUTHORIZATION ON FULLTEXT STOPLIST::[OwnedStoplist] TO [mcp_stoplist_owner]; END; SELECT N'restored';";
+        const string property =
+            "ALTER SEARCH PROPERTY LIST [OwnedProperties] ADD N'OwnerProbe' WITH (" +
+            "PROPERTY_SET_GUID = 'F29F85E0-4FF9-1068-AB91-08002B27B3D9', PROPERTY_INT_ID = 98, PROPERTY_DESCRIPTION = N'probe'); " +
+            "SELECT CONVERT(nvarchar(10), COUNT(*)) FROM sys.registered_search_properties WHERE property_name = N'OwnerProbe';";
+        const string removeProperty =
+            "IF EXISTS (SELECT 1 FROM sys.registered_search_properties WHERE property_name = N'OwnerProbe') " +
+            "ALTER SEARCH PROPERTY LIST [OwnedProperties] DROP N'OwnerProbe'; SELECT N'removed';";
+        const string port =
+            "ALTER ENDPOINT [mcp_owned_endpoint] AS TCP (LISTENER_PORT = 4098); " +
+            "SELECT CONVERT(nvarchar(10), port) FROM sys.tcp_endpoints WHERE name = N'mcp_owned_endpoint';";
+        const string restorePort = "ALTER ENDPOINT [mcp_owned_endpoint] AS TCP (LISTENER_PORT = 4099); SELECT N'restored';";
+
+        Assert.Equal("error 30047", await OutcomeAsync(fixture.ReaderConnectionString, drop, rollBack: false));
+        Assert.Equal("error 30025", await OutcomeAsync(fixture.ReaderConnectionString, property, rollBack: false));
+        Assert.Equal("error 6004", await OutcomeAsync(fixture.ReaderConnectionString, port, rollBack: false));
+        try
+        {
+            Assert.Equal("0", await OutcomeAsync(fixture.ExtraConnectionString(SqlServerFixture.StoplistOwnerLogin), drop, rollBack: false));
+            Assert.Equal("1", await OutcomeAsync(fixture.ExtraConnectionString(SqlServerFixture.PropertyListOwnerLogin), property, rollBack: false));
+            Assert.Equal("4098", await OutcomeAsync(fixture.ExtraConnectionString(SqlServerFixture.EndpointOwnerLogin), port, rollBack: false));
+        }
+        finally
+        {
+            await AdminScalarAsync(SqlServerFixture.Database, restoreStoplist);
+            await AdminScalarAsync(SqlServerFixture.Database, removeProperty);
+            await AdminScalarAsync("master", restorePort);
+        }
+    }
+
+    [Fact]
+    public async Task Member_of_a_role_that_owns_a_schema_is_named_for_the_schema()
+    {
+        // The role owns the schema; its member holds CONTROL on it through the role, with no grant row.
+        var report = await CheckAsync(fixture.ExtraConnectionString(SqlServerFixture.RoleSchemaOwnerLogin));
+
+        Assert.Equal(
+            [
+                "ALTER on schema [role_owned]", "CONTROL on schema [role_owned]", "CREATE SEQUENCE on schema [role_owned]",
+                "DELETE on schema [role_owned]", "EXECUTE on schema [role_owned]", "INSERT on schema [role_owned]",
+                "TAKE OWNERSHIP on schema [role_owned]", "UPDATE on schema [role_owned]",
+            ],
+            report.Findings.Select(f => f.ToString()));
+    }
+
+    [Theory]
+    [InlineData(SqlServerFixture.RoleMessageTypeOwnerLogin, "message type [RoleOwnedMessage]")]
+    [InlineData(SqlServerFixture.RoleStoplistOwnerLogin, "full-text stoplist [RoleOwnedStoplist]")]
+    [InlineData(SqlServerFixture.RoleEndpointOwnerLogin, "endpoint [mcp_role_owned_endpoint]")]
+    [InlineData(SqlServerFixture.RoleServerRoleOwnerLogin, "server role [mcp_role_owned_role]")]
+    public async Task Member_of_a_role_that_owns_a_securable_is_named_for_it(string login, string securable)
+    {
+        // A database role owns the message type and the stoplist; a server role owns the endpoint and the server role.
+        var report = await CheckAsync(fixture.ExtraConnectionString(login));
+
+        Assert.Equal(
+            [$"ALTER on {securable}", $"CONTROL on {securable}", $"TAKE OWNERSHIP on {securable}"],
+            report.Findings.Select(f => f.ToString()));
+    }
+
+    [Fact]
+    public async Task Allowed_right_public_holds_with_grant_option_is_named_with_it()
+    {
+        // public holds SELECT and INSERT on the table WITH GRANT OPTION; the login has no grant of its own.
+        var report = await CheckAsync(
+            fixture.ExtraConnectionString(SqlServerFixture.PublicGrantReaderLogin, SqlServerFixture.PublicGrantDatabase));
+
+        Assert.Contains("SELECT WITH GRANT OPTION on object [dbo].[PublicNotes]", report.Findings.Select(f => f.ToString()));
+    }
+
+    [Fact]
+    public async Task Refused_right_public_holds_with_grant_option_keeps_its_one_finding()
+    {
+        var report = await CheckAsync(
+            fixture.ExtraConnectionString(SqlServerFixture.PublicGrantReaderLogin, SqlServerFixture.PublicGrantDatabase));
+
+        Assert.Equal(
+            ["INSERT on object [dbo].[PublicNotes]", "SELECT WITH GRANT OPTION on object [dbo].[PublicNotes]"],
+            report.Findings.Select(f => f.ToString()));
+    }
+
+    [Theory]
+    [InlineData(SqlServerFixture.SchemaGrantorLogin, "SELECT WITH GRANT OPTION on schema [dbo]")]
+    [InlineData(SqlServerFixture.RoleSchemaGrantorLogin, "SELECT WITH GRANT OPTION on schema [dbo]")]
+    [InlineData(SqlServerFixture.ObjectGrantorLogin, "SELECT WITH GRANT OPTION on object [dbo].[Customers]")]
+    [InlineData(SqlServerFixture.RoleObjectGrantorLogin, "SELECT WITH GRANT OPTION on object [dbo].[Customers]")]
+    [InlineData(SqlServerFixture.ColumnGrantorLogin, "SELECT WITH GRANT OPTION on column [dbo].[Customers].[City]")]
+    [InlineData(SqlServerFixture.RoleColumnGrantorLogin, "SELECT WITH GRANT OPTION on column [dbo].[Customers].[City]")]
+    [InlineData(SqlServerFixture.DatabaseGrantorLogin, "CONNECT WITH GRANT OPTION on database ShopDb")]
+    [InlineData(SqlServerFixture.RoleDatabaseGrantorLogin, "CONNECT WITH GRANT OPTION on database ShopDb")]
+    [InlineData(SqlServerFixture.ServerGrantorLogin, "VIEW ANY DATABASE WITH GRANT OPTION on server")]
+    [InlineData(SqlServerFixture.RoleServerGrantorLogin, "VIEW ANY DATABASE WITH GRANT OPTION on server")]
+    [InlineData(SqlServerFixture.DatabaseSelectGrantorLogin, "SELECT on database ShopDb")]
+    [InlineData(SqlServerFixture.InsertGrantorLogin, "INSERT on object [dbo].[Customers]")]
+    public async Task Right_held_with_grant_option_is_named_with_it_when_the_right_itself_is_allowed(string login, string expected)
+    {
+        // A right the check allows, held WITH GRANT OPTION by the login or a role it is in, lets the login grant it on;
+        // a right the check refuses keeps its one finding.
+        var report = await CheckAsync(fixture.ExtraConnectionString(login));
+
+        Assert.Equal([expected], report.Findings.Select(f => f.ToString()));
+    }
+
+    [Theory]
+    [InlineData(SqlServerFixture.SchemaGrantorLogin, "GRANT SELECT ON SCHEMA::dbo TO guest;", "error 15151")]
+    [InlineData(SqlServerFixture.RoleSchemaGrantorLogin, "GRANT SELECT ON SCHEMA::dbo TO guest AS [schema_grantors];", "error 15151")]
+    [InlineData(SqlServerFixture.ObjectGrantorLogin, "GRANT SELECT ON dbo.Customers TO guest;", "error 15151")]
+    [InlineData(SqlServerFixture.RoleObjectGrantorLogin, "GRANT SELECT ON dbo.Customers TO guest AS [object_grantors];", "error 15151")]
+    [InlineData(SqlServerFixture.ColumnGrantorLogin, "GRANT SELECT ON dbo.Customers (City) TO guest;", "error 15151")]
+    [InlineData(
+        SqlServerFixture.RoleColumnGrantorLogin, "GRANT SELECT ON dbo.Customers (City) TO guest AS [column_grantors];", "error 15151")]
+    [InlineData(SqlServerFixture.DatabaseGrantorLogin, "GRANT CONNECT TO guest;", "error 4613")]
+    [InlineData(SqlServerFixture.RoleDatabaseGrantorLogin, "GRANT CONNECT TO guest AS [database_grantors];", "error 15151")]
+    public async Task Grant_option_lets_the_login_grant_the_right_in_the_database_and_the_reader_cannot(
+        string login, string grant, string readerOutcome)
+    {
+        // Rolled back. The grantee sees the new grant row to guest.
+        var act = grant + " SELECT CONVERT(nvarchar(10), COUNT(*)) FROM sys.database_permissions " +
+                  "WHERE grantee_principal_id = DATABASE_PRINCIPAL_ID(N'guest');";
+
+        Assert.Equal("1", await RolledBackAsync(fixture.ExtraConnectionString(login), act));
+        Assert.Equal(readerOutcome, await RolledBackAsync(fixture.ReaderConnectionString, act));
+    }
+
+    [Theory]
+    [InlineData(SqlServerFixture.ServerGrantorLogin, "GRANT VIEW ANY DATABASE TO [mcp_target_login];", "error 4613")]
+    [InlineData(
+        SqlServerFixture.RoleServerGrantorLogin, "GRANT VIEW ANY DATABASE TO [mcp_target_login] AS [mcp_database_listers];",
+        "error 15151")]
+    public async Task Grant_option_lets_the_login_grant_the_right_on_the_server_and_the_reader_cannot(
+        string login, string grant, string readerOutcome)
+    {
+        // Rolled back. A server-scope GRANT runs only in master (error 4621 elsewhere); the grantors enter it as guest.
+        var act = grant + " SELECT N'granted';";
+
+        Assert.Equal("granted", await RolledBackAsync(fixture.ExtraConnectionString(login, "master"), act));
+        Assert.Equal(
+            readerOutcome, await RolledBackAsync(fixture.ExtraConnectionString(SqlServerFixture.PlainReaderLogin, "master"), act));
+    }
+
+    [Fact]
+    public async Task Login_that_sees_other_logins_grants_on_a_user_an_application_role_and_a_login_passes()
+    {
+        // VIEW DEFINITION on a user, an application role or a login shows the login every grant on it, also those
+        // to principals it cannot see (measured). Such a row is decided by what the login holds itself
+        // (HAS_PERMS_BY_NAME), so these rows are not findings.
+        var report = await CheckAsync(fixture.ExtraConnectionString(SqlServerFixture.PrincipalViewerLogin));
+
+        Assert.Equal([], report.Findings.Select(f => f.ToString()));
+    }
+
     private async Task BeginDialogAsync(string login, string fromService, string body)
     {
         await using var connection = new Microsoft.Data.SqlClient.SqlConnection(

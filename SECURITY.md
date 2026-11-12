@@ -24,9 +24,11 @@ who can write the audit file. They can do more than this server can stop.
    on any finding of the check described below (`src/MssqlReadOnlyMcp/PermissionCheck.cs`). So a write to the
    connected database's tables, views, sequences, schemas or synonyms that got past the gate would still be refused
    by SQL Server. The check asks the objects that ship with SQL Server (`is_ms_shipped`) in the connected database's
-   `sys.objects` like any other, but not the system views, procedures and functions in schemas `sys` and
-   `INFORMATION_SCHEMA`, which are listed in `sys.system_objects`, not in `sys.objects`, and no other database
-   (`tempdb` included); only the gate stops writes through those.
+   `sys.objects` like any other. The system views, procedures and functions in schemas `sys` and
+   `INFORMATION_SCHEMA` (listed in `sys.system_objects`) are not asked one by one; a grant on one is found from
+   `sys.database_permissions`, except `public`'s `EXECUTE` in `master`, which a default installation holds on more
+   than 1,600 of them. No other database (`tempdb` included) is inspected; only the gate stops writes through those
+   and through a `public` grant of that kind.
 
 `run_query` also runs inside a transaction that is always rolled back. That is not counted as a layer: a rollback
 does not undo every effect. After the text has run, a second result set (`MultipleResultSets`) or a reported row
@@ -41,18 +43,33 @@ The check is an allowlist over the login's effective permissions at server and d
 scope on every object of the asked types in the connected database's `sys.objects` (those marked as shipped, such
 as `cdc` tables or objects marked with `sp_MS_marksystemobject`, included), on schemas, roles and application
 roles, and on user-defined server roles at server scope, for four rights on every Service Broker queue (the
-built-in ones included), and for every right but a few allowed ones on the eight other securable classes the README
-lists as checked (the built-in assembly `Microsoft.SqlServer.Types` included); a NULL answer is a finding, never a
-pass (`src/MssqlReadOnlyMcp/PermissionCheck.cs`). Connected to `msdb`, a login with a user there is refused
-(measured for a reader with `SELECT` on schema `dbo`; every user is in `public`), because `public` may execute
-shipped procedures and functions there (14 on SQL Server 2019, 15 on 2022 and 2025; the README lists them); a
-reader with a user and `SELECT` on schema `dbo` passes in `master` and in a new user database. It inspects the
-server and the connection's database only, and some securable classes not at all. The README sentences that start
-"Not asked" list the rights it does not ask, some of which a login can use to change server or database settings
-(measured). A reader with `SELECT` on a schema that holds a temporal or ledger history table is refused although it
-cannot write there; the README explains why and what to grant instead. The full lists of what it refuses, what it
-allows on each class and why, and what it does not inspect, why synonyms are asked and where that question
-over-reports, the limits of the class rules, and the platform note are in the README section
+built-in ones included), and for every right but a few allowed ones on the sixteen other securable classes the
+README lists as checked (the built-in assembly `Microsoft.SqlServer.Types` included; an owner holds `CONTROL`, so
+this question finds it). As a backstop, any right granted to the login, to a role or group it is in, or to `public`
+on any securable of the connected database or the server, whatever its class, is a finding unless it is `CONNECT`
+or `VIEW DEFINITION`, on a database securable also `SELECT`, `REFERENCES`, `VIEW CHANGE TRACKING`, `UNMASK` or
+`EXECUTE` on a table type, an alias type or an XML schema collection, or, in `master`, `public`'s `EXECUTE` on a
+system object. An allowed right held `WITH GRANT OPTION` is a finding too, `<right> WITH GRANT OPTION`, also for
+the rights allowed on the database and the server. A NULL answer is a finding, never a pass
+(`src/MssqlReadOnlyMcp/PermissionCheck.cs`).
+Connected to `msdb`, a login with a user there is refused (measured for a reader with `SELECT` on schema `dbo`;
+every user is in `public`), because `public` may execute shipped procedures and functions there (14 on SQL Server
+2019, 15 on 2022 and 2025; the README lists them); a reader with a user and `SELECT` on schema `dbo` passes in
+`master` and in a new user database. It inspects the server and the connection's database only. `ALTER` on a user
+or a login, `ALTER` on an external model (SQL Server 2025) and `EXECUTE` on a system extended procedure in `master`
+are found only by the backstop. `ALTER` on an endpoint, a route, a message type, a remote service binding, a
+search property list or a database scoped credential and `TAKE OWNERSHIP` on a contract or a full-text stoplist
+are found by the class question and by the backstop, and an owner of any of those eight classes by the class
+question, also when a role the login is in is the owner (measured for a message type, a full-text stoplist and an
+endpoint; no act was run through a role). With each right, and as each owner, the login ran a statement that the
+plain reader could not run (measured; the README names each statement and what it changed, where a change was
+shown). With an allowed right held `WITH GRANT OPTION` the login granted it to another
+principal, and the plain reader could not (measured at schema, object, column, database and server scope).
+A reader with `SELECT` on a schema that holds a temporal or ledger history table is refused:
+on SQL Server 2019 it could insert into the temporal history table through `OUTPUT ... INTO` (measured); on 2022
+and 2025 no insert that was tried ran. The README explains why and what to grant instead. The full lists of what
+it refuses, what it allows on each class and why, and what it does not inspect, why synonyms are asked and where
+that question over-reports, the limits of the class rules, and the platform note are in the README section
 "What `check-login` refuses"; read them before you rely on a pass.
 
 ## What each test class proves
@@ -108,7 +125,16 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
   allows on those classes passes, and at least one act for each refused login, except the two that hold `SEND`
   through a role, shows its right at work while the reader cannot; rights on a procedure and a table marked with
   `sp_MS_marksystemobject`, on the change data capture table `cdc.ddl_history`, on a user-defined server role and on
-  an application role are found exactly and shown at work; a plain reader passes in `master` and in a database with
+  an application role are found exactly and shown at work; the rights found through the grant rows (named under
+  "What the login check covers", a route also through a role and through a role in a role) get their exact findings
+  and an act each while the reader cannot (for `xp_regwrite` the test shows only a different outcome: error 0 for
+  the grantee, 229 for the reader; see the README); an owner of each of the eight classes named there, and a login
+  holding an allowed right `WITH GRANT OPTION` at schema, object, column, database and server scope, directly and
+  through a role, get their exact findings and an act each while the reader cannot; a member of a role that owns a
+  schema, a message type, a full-text stoplist, an endpoint or a server role, and a login in a database where
+  `public` holds `SELECT` and `INSERT` `WITH GRANT OPTION`, get their exact findings (no act); a login that sees other
+  principals' grants on a user, an application role and a login passes; a plain reader passes in `master` and in a
+  database with
   change data capture enabled at database level (`sys.sp_cdc_enable_db`, no table enabled for capture; the README
   gives a measurement with captured tables), and is refused in `msdb` with the exact list `public` may execute
   there; how a NULL answer's finding is printed (the NULL path in the query has no test).
@@ -175,10 +201,13 @@ Limits of this measurement:
 
 ## Known limits
 
-- **The login check does not inspect everything.** It looks at the server and the connected database only, and
-  some securable classes it does not ask about at all; a password-protected symmetric key can be opened with
-  `REFERENCES` or `VIEW DEFINITION` plus its password, which the check allows. The lists and the other limits of
-  the check are in the README section "What `check-login` refuses".
+- **The login check does not inspect everything.** It looks at the server and the connected database only; in
+  `master` it does not tell a `public` grant of `EXECUTE` on a system object from the default ones; the owner of
+  an external model (SQL Server 2025), an availability group, an external language or an external table is not
+  found; a
+  password-protected symmetric key can be opened with `REFERENCES` or `VIEW DEFINITION` plus its password, which
+  the check allows. The lists and the other limits of the check are in the README section
+  "What `check-login` refuses".
 - **Synonyms and views can point elsewhere.** The gate sees a one-part or two-part name. A synonym can point to
   another database or, through a linked server, to another server; a view can read tables the login has no SELECT
   on through an ownership chain; and a view or a computed column can call a user-defined function, which the gate

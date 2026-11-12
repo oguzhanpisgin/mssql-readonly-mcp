@@ -76,6 +76,7 @@ GO
 -- EDIT: the tables and views the assistant may read. One line per object. Keep only SELECT.
 -- Every name here is an example; replace them with your own objects.
 -- To grant a whole schema instead, use: GRANT SELECT ON SCHEMA::[reporting] TO [$(MCP_LOGIN)];
+-- check-login refuses such a grant on a schema that holds a temporal or ledger history table (see the README).
 -- Check views and synonyms before you grant them: they can read other tables or other databases (see SECURITY.md).
 -- ===================================================================================================================
 GRANT SELECT ON OBJECT::[dbo].[ExampleCustomers] TO [$(MCP_LOGIN)];

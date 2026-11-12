@@ -4,14 +4,18 @@ using Microsoft.Data.SqlClient;
 namespace MssqlReadOnlyMcp;
 
 /// <summary>One way the login can change data, schema or security, or a right the check could not evaluate.</summary>
-/// <param name="Permission">The permission or role name.</param>
+/// <param name="Permission">
+/// The permission or role name; an allowed right the login can grant to others ends in <c>WITH GRANT OPTION</c>.
+/// </param>
 /// <param name="Scope">
 /// <c>server</c>, <c>server role</c>, <c>login</c>, <c>database</c>, <c>database role</c>, <c>user</c>, <c>role</c>,
 /// <c>application role</c>, <c>schema</c>, <c>object</c>, <c>synonym</c>, <c>column</c>, <c>queue</c>,
 /// <c>service</c>, <c>certificate</c>, <c>asymmetric key</c>, <c>symmetric key</c>, <c>assembly</c>, <c>type</c>,
-/// <c>xml schema collection</c> or <c>full-text catalog</c>. <c>server role</c> without names is a membership; with
-/// a name it is a right on that user-defined server role. A service the login holds only SEND on is not visible to it
-/// and is named <c>id &lt;service_id&gt;</c>.
+/// <c>xml schema collection</c>, <c>full-text catalog</c>, <c>endpoint</c>, <c>message type</c>, <c>contract</c>,
+/// <c>remote service binding</c>, <c>route</c>, <c>full-text stoplist</c>, <c>search property list</c> or
+/// <c>database scoped credential</c>; from the grant rows also the class SQL Server names. <c>server role</c>
+/// without names is a membership; with a name it is a right on that user-defined server role. A securable the login
+/// cannot see (a service it holds only SEND on, for example) is named <c>id &lt;id&gt;</c>.
 /// </param>
 /// <param name="Objects">At most ten names the permission is held on; empty for scopes without names.</param>
 /// <param name="ObjectCount">How many names hold the permission in total.</param>
@@ -73,18 +77,19 @@ internal static class PermissionCheck
     //             KEY DEFINITION (Always Encrypted key metadata, never key material; public holds both by default).
     // Below those, objects, columns, roles, application roles, schemas, sequences, modules and synonyms are asked one
     // by one, and so are user-defined server roles, Service Broker queues and services, certificates, asymmetric and
-    // symmetric keys, assemblies, user types, XML schema collections and full-text catalogs (measured on the same
-    // three versions). Names are passed through QUOTENAME so a name that needs quoting (a dot, a space, a bracket) is
-    // not misread as another name, which would answer NULL.
+    // symmetric keys, assemblies, user types, XML schema collections and full-text catalogs, message types, contracts,
+    // remote service bindings, routes, full-text stoplists, search property lists, database scoped credentials and
+    // endpoints (measured on the same three versions). Names are passed through QUOTENAME so a name that needs
+    // quoting (a dot, a space, a bracket) is not misread as another name, which would answer NULL.
     // The object arms read every object of their types in the connected database's sys.objects, the ones SQL Server
     // marks as shipped (is_ms_shipped = 1) included: sp_MS_marksystemobject marks any object so, and change data
     // capture adds shipped tables in schema cdc, and a right on either works (measured). Connected to msdb every
     // login with a user there is therefore refused: public may execute 14 shipped procedures and functions there on
     // 2019, 15 on 2022 and 2025. The system views, procedures and functions in schemas sys and INFORMATION_SCHEMA are
-    // in sys.system_objects, not sys.objects, and are not asked; in sys.objects those schemas hold only IT, S, PK and
-    // TT rows, none of the asked types (measured); the schemas themselves are asked. Connected to master, SQL Server
-    // accepts an EXECUTE grant on a system extended procedure in schema sys (sys.xp_regwrite, type X); it is not in
-    // sys.objects, so this check does not see it (measured).
+    // in sys.system_objects, not sys.objects, and are not asked one by one; in sys.objects those schemas hold only IT,
+    // S, PK and TT rows, none of the asked types (measured); the schemas themselves are asked. A grant on a system
+    // object (in master, EXECUTE on sys.xp_regwrite runs it) is found by the backstop arm, which reads the grant rows,
+    // except public's EXECUTE on a system object in master, which the backstop leaves out (see there).
     // Metadata visibility helps here: a login sees a login, user, role or object it holds a permission on.
     // The first arm's COLLATE settles the arms' different catalogue collations (server, database, permission list).
     // Filters kept below, and why. Measured: a user-defined server role's rights reach its members'
@@ -99,7 +104,7 @@ internal static class PermissionCheck
         SELECT f.permission, f.scope, f.object_name, f.column_name, f.state
         FROM (
             SELECT CAST(r.name AS nvarchar(128)) COLLATE DATABASE_DEFAULT AS permission,
-                   CAST(N'server role' AS nvarchar(30)) COLLATE DATABASE_DEFAULT AS scope,
+                   CAST(N'server role' AS nvarchar(60)) COLLATE DATABASE_DEFAULT AS scope,
                    CAST(NULL AS nvarchar(600)) COLLATE DATABASE_DEFAULT AS object_name,
                    CAST(NULL AS nvarchar(300)) COLLATE DATABASE_DEFAULT AS column_name,
                    IS_SRVROLEMEMBER(r.name) AS state
@@ -223,6 +228,11 @@ internal static class PermissionCheck
             -- Built-in types and the XML schema collections in schema sys are left out because
             -- SQL Server refuses every right on them: error 15151 on a built-in type, 4606 on sys.sys (measured for
             -- each right the class lists).
+            -- Message types, contracts, remote service bindings, routes, full-text stoplists, search property lists,
+            -- database scoped credentials and endpoints are asked the same way, so that an owner, who holds CONTROL
+            -- without a grant row, is found: measured, each owner given the securable with ALTER AUTHORIZATION sees
+            -- it, HAS_PERMS_BY_NAME answers 1 for every right the class lists, and the owner ran a change the reader
+            -- could not. CONNECT on an endpoint is allowed too: public holds it on the T-SQL endpoints.
             SELECT p.permission_name, k.scope, k.name, NULL, HAS_PERMS_BY_NAME(k.name, k.class, p.permission_name)
             FROM (
                 SELECT CAST(N'SERVICE' AS nvarchar(60)) COLLATE DATABASE_DEFAULT, CAST(N'service' AS nvarchar(30)) COLLATE DATABASE_DEFAULT,
@@ -247,31 +257,191 @@ internal static class PermissionCheck
                 WHERE x.schema_id <> SCHEMA_ID(N'sys')
                 UNION ALL
                 SELECT N'FULLTEXT CATALOG', N'full-text catalog', QUOTENAME(t.name), 0 FROM sys.fulltext_catalogs AS t
+                UNION ALL
+                SELECT N'MESSAGE TYPE', N'message type', QUOTENAME(m.name), 0 FROM sys.service_message_types AS m
+                UNION ALL
+                SELECT N'CONTRACT', N'contract', QUOTENAME(c.name), 0 FROM sys.service_contracts AS c
+                UNION ALL
+                SELECT N'REMOTE SERVICE BINDING', N'remote service binding', QUOTENAME(b.name), 0
+                FROM sys.remote_service_bindings AS b
+                UNION ALL
+                SELECT N'ROUTE', N'route', QUOTENAME(r.name), 0 FROM sys.routes AS r
+                UNION ALL
+                SELECT N'FULLTEXT STOPLIST', N'full-text stoplist', QUOTENAME(s.name), 0 FROM sys.fulltext_stoplists AS s
+                UNION ALL
+                SELECT N'SEARCH PROPERTY LIST', N'search property list', QUOTENAME(s.name), 0
+                FROM sys.registered_search_property_lists AS s
+                UNION ALL
+                SELECT N'DATABASE SCOPED CREDENTIAL', N'database scoped credential', QUOTENAME(s.name), 0
+                FROM sys.database_scoped_credentials AS s
+                UNION ALL
+                SELECT N'ENDPOINT', N'endpoint', QUOTENAME(e.name) COLLATE DATABASE_DEFAULT, 0 FROM sys.endpoints AS e
             ) AS k(class, scope, name, execute_allowed)
             JOIN sys.fn_builtin_permissions(DEFAULT) AS p ON p.class_desc = k.class
             WHERE p.permission_name NOT IN (N'VIEW DEFINITION', N'REFERENCES')
               AND (p.permission_name <> N'EXECUTE' OR k.execute_allowed = 0)
+              AND NOT (k.class = N'ENDPOINT' AND p.permission_name = N'CONNECT')
             UNION ALL
-            -- SEND alone does not make a service visible in sys.services, but the grant row is visible in
-            -- sys.database_permissions when it is the login's own, a role's it is in, or public's. Such a service
-            -- is named by its id, once however many grant rows reach the login: held if any row answers 1, else
-            -- could not be checked if any answers NULL, else not held. A deny next to the grant is not read: the
-            -- grant is still a finding.
-            SELECT N'SEND', N'service', CONCAT(N'id ', u.major_id), NULL,
-                   CASE WHEN MAX(CASE WHEN u.state = 1 THEN 1 ELSE 0 END) = 1 THEN 1
-                        WHEN COUNT(*) > COUNT(u.state) THEN NULL
-                        ELSE 0 END
-            FROM (
-                SELECT p.major_id,
-                       CASE WHEN p.grantee_principal_id = DATABASE_PRINCIPAL_ID() THEN 1
-                            WHEN g.type IN ('R', 'G', 'X') THEN IS_MEMBER(g.name)
-                            WHEN g.principal_id IS NOT NULL THEN 0 END
-                FROM sys.database_permissions AS p
-                LEFT JOIN sys.database_principals AS g ON g.principal_id = p.grantee_principal_id
-                WHERE p.class = 17 AND p.type = 'SN' AND p.state IN ('G', 'W')
-                  AND NOT EXISTS (SELECT 1 FROM sys.services AS s WHERE s.service_id = p.major_id)
-            ) AS u(major_id, state)
-            GROUP BY u.major_id
+            -- Backstop: every granted right (state G or W) on a securable of the connected database, whatever its
+            -- class, that is not allowed here. The rows visible in sys.database_permissions are the login's own, a
+            -- role's it is in (also a role that role is in), public's, and on some securables other principals'
+            -- (measured: ALTER or VIEW DEFINITION on a user, an application role or a login, and CONTROL on a type,
+            -- show every grant on it); whether a Windows or Entra group's row is visible was not measured (no such
+            -- principals in the test images). Whether a row reaches the login: its own grant 1; a role or group
+            -- IS_MEMBER; another principal it can see 0; a principal it cannot see on an object, column, schema,
+            -- database principal or type, what HAS_PERMS_BY_NAME answers for the login, except on its own user or
+            -- login: there it answers 1 for another principal's IMPERSONATE grant (measured on the user), so 0;
+            -- otherwise NULL, a finding. A deny next to the grant is not read: the grant is still a finding. A
+            -- securable whose name the login cannot see is named by id (measured: SEND alone does not make a service
+            -- visible). The caller keeps one row per name.
+            -- Allowed: what the arms above leave out (SELECT, VIEW DEFINITION, REFERENCES, VIEW CHANGE TRACKING and
+            -- UNMASK below database scope, EXECUTE on table and alias types and XML schema collections) and, in master
+            -- only, public's EXECUTE on system objects: a default installation grants it on 1623 (2019), 1739 (2022)
+            -- and 1838 (2025) objects in schema sys (measured); an explicit grant of that kind to public is not told
+            -- apart from the default.
+            -- WITH GRANT OPTION: an allowed right in state W lets the login grant it to others (measured at schema,
+            -- object, column and database scope, own grant and through a role), so it is a finding named
+            -- "<right> WITH GRANT OPTION"; at database scope (class 0) only such rows are read, the rest is in
+            -- fn_my_permissions(DATABASE) above. HAS_PERMS_BY_NAME does not tell a grant option apart, so a W row of
+            -- a principal the login cannot see counts as not the login's. A refused right in state W keeps its name.
+            -- No W row exists in a default installation (measured in every database of the three images).
+            SELECT CASE WHEN a.allowed = 1 THEN p.permission_name + N' WITH GRANT OPTION' ELSE p.permission_name END,
+                   n.scope, CASE WHEN p.class <> 0 THEN ISNULL(n.name, CONCAT(N'id ', p.major_id)) END, n.column_name,
+                   CASE WHEN p.grantee_principal_id = DATABASE_PRINCIPAL_ID() THEN 1
+                        WHEN g.type IN ('R', 'G', 'X') THEN IS_MEMBER(g.name)
+                        WHEN a.allowed = 1 OR g.principal_id IS NOT NULL THEN 0
+                        WHEN p.class = 4 AND p.major_id = DATABASE_PRINCIPAL_ID() THEN 0
+                        WHEN n.class IS NULL OR n.name IS NULL THEN NULL
+                        WHEN n.column_name IS NULL THEN HAS_PERMS_BY_NAME(n.name, n.class, p.permission_name)
+                        ELSE HAS_PERMS_BY_NAME(n.name, n.class, p.permission_name, n.column_name, N'COLUMN') END
+            FROM sys.database_permissions AS p
+            LEFT JOIN sys.database_principals AS g ON g.principal_id = p.grantee_principal_id
+            LEFT JOIN sys.all_objects AS o ON p.class = 1 AND o.object_id = p.major_id
+            LEFT JOIN sys.database_principals AS d ON p.class = 4 AND d.principal_id = p.major_id
+            LEFT JOIN sys.types AS t ON p.class = 6 AND t.user_type_id = p.major_id
+            CROSS APPLY (
+                SELECT CASE p.class
+                           WHEN 1 THEN CASE WHEN p.minor_id <> 0 THEN N'column' WHEN o.type = 'SN' THEN N'synonym'
+                                            WHEN o.type = 'SQ' THEN N'queue' ELSE N'object' END
+                           WHEN 3 THEN N'schema'
+                           WHEN 4 THEN CASE WHEN d.type = 'R' THEN N'role' WHEN d.type = 'A' THEN N'application role'
+                                            WHEN d.type IS NULL THEN N'database principal' ELSE N'user' END
+                           WHEN 5 THEN N'assembly'
+                           WHEN 6 THEN N'type'
+                           WHEN 10 THEN N'xml schema collection'
+                           WHEN 15 THEN N'message type'
+                           WHEN 16 THEN N'contract'
+                           WHEN 17 THEN N'service'
+                           WHEN 18 THEN N'remote service binding'
+                           WHEN 19 THEN N'route'
+                           WHEN 23 THEN N'full-text catalog'
+                           WHEN 24 THEN N'symmetric key'
+                           WHEN 25 THEN N'certificate'
+                           WHEN 26 THEN N'asymmetric key'
+                           WHEN 29 THEN N'full-text stoplist'
+                           WHEN 31 THEN N'search property list'
+                           WHEN 32 THEN N'database scoped credential'
+                           ELSE LOWER(REPLACE(p.class_desc, N'_', N' ')) COLLATE DATABASE_DEFAULT END,
+                       CASE p.class
+                           WHEN 1 THEN QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name) COLLATE DATABASE_DEFAULT
+                           WHEN 3 THEN QUOTENAME(SCHEMA_NAME(p.major_id)) COLLATE DATABASE_DEFAULT
+                           WHEN 4 THEN QUOTENAME(d.name) COLLATE DATABASE_DEFAULT
+                           WHEN 5 THEN (SELECT QUOTENAME(a.name) COLLATE DATABASE_DEFAULT FROM sys.assemblies AS a
+                                        WHERE a.assembly_id = p.major_id)
+                           WHEN 6 THEN QUOTENAME(SCHEMA_NAME(t.schema_id)) + N'.' + QUOTENAME(t.name) COLLATE DATABASE_DEFAULT
+                           WHEN 10 THEN (SELECT QUOTENAME(SCHEMA_NAME(x.schema_id)) + N'.' + QUOTENAME(x.name) COLLATE DATABASE_DEFAULT
+                                         FROM sys.xml_schema_collections AS x WHERE x.xml_collection_id = p.major_id)
+                           WHEN 15 THEN (SELECT QUOTENAME(m.name) COLLATE DATABASE_DEFAULT FROM sys.service_message_types AS m
+                                         WHERE m.message_type_id = p.major_id)
+                           WHEN 16 THEN (SELECT QUOTENAME(c.name) COLLATE DATABASE_DEFAULT FROM sys.service_contracts AS c
+                                         WHERE c.service_contract_id = p.major_id)
+                           WHEN 17 THEN (SELECT QUOTENAME(s.name) COLLATE DATABASE_DEFAULT FROM sys.services AS s
+                                         WHERE s.service_id = p.major_id)
+                           WHEN 18 THEN (SELECT QUOTENAME(b.name) COLLATE DATABASE_DEFAULT FROM sys.remote_service_bindings AS b
+                                         WHERE b.remote_service_binding_id = p.major_id)
+                           WHEN 19 THEN (SELECT QUOTENAME(r.name) COLLATE DATABASE_DEFAULT FROM sys.routes AS r
+                                         WHERE r.route_id = p.major_id)
+                           WHEN 23 THEN (SELECT QUOTENAME(c.name) COLLATE DATABASE_DEFAULT FROM sys.fulltext_catalogs AS c
+                                         WHERE c.fulltext_catalog_id = p.major_id)
+                           WHEN 24 THEN (SELECT QUOTENAME(k.name) COLLATE DATABASE_DEFAULT FROM sys.symmetric_keys AS k
+                                         WHERE k.symmetric_key_id = p.major_id)
+                           WHEN 25 THEN (SELECT QUOTENAME(c.name) COLLATE DATABASE_DEFAULT FROM sys.certificates AS c
+                                         WHERE c.certificate_id = p.major_id)
+                           WHEN 26 THEN (SELECT QUOTENAME(k.name) COLLATE DATABASE_DEFAULT FROM sys.asymmetric_keys AS k
+                                         WHERE k.asymmetric_key_id = p.major_id)
+                           WHEN 29 THEN (SELECT QUOTENAME(s.name) COLLATE DATABASE_DEFAULT FROM sys.fulltext_stoplists AS s
+                                         WHERE s.stoplist_id = p.major_id)
+                           WHEN 31 THEN (SELECT QUOTENAME(s.name) COLLATE DATABASE_DEFAULT FROM sys.registered_search_property_lists AS s
+                                         WHERE s.property_list_id = p.major_id)
+                           WHEN 32 THEN (SELECT QUOTENAME(s.name) COLLATE DATABASE_DEFAULT FROM sys.database_scoped_credentials AS s
+                                         WHERE s.credential_id = p.major_id)
+                       END,
+                       CASE WHEN p.class = 1 AND p.minor_id <> 0
+                            THEN ISNULL(QUOTENAME(COL_NAME(p.major_id, p.minor_id)), CONCAT(N'id ', p.minor_id)) COLLATE DATABASE_DEFAULT
+                       END,
+                       CASE p.class
+                           WHEN 1 THEN N'OBJECT'
+                           WHEN 3 THEN N'SCHEMA'
+                           WHEN 4 THEN CASE d.type WHEN 'R' THEN N'ROLE' WHEN 'A' THEN N'APPLICATION ROLE' ELSE N'USER' END
+                           WHEN 6 THEN N'TYPE'
+                       END
+            ) AS n(scope, name, column_name, class)
+            -- t.is_assembly_type is NULL for a type the login cannot see; ISNULL counts that as a CLR type, so its
+            -- EXECUTE row is a finding instead of being dropped.
+            CROSS APPLY (
+                SELECT CASE WHEN p.class = 0
+                            THEN CASE WHEN p.permission_name IN (N'CONNECT', N'VIEW ANY COLUMN ENCRYPTION KEY DEFINITION',
+                                                                 N'VIEW ANY COLUMN MASTER KEY DEFINITION') THEN 1 ELSE 0 END
+                            WHEN p.permission_name IN (N'CONNECT', N'SELECT', N'VIEW DEFINITION', N'REFERENCES',
+                                                       N'VIEW CHANGE TRACKING', N'UNMASK') THEN 1
+                            WHEN p.permission_name = N'EXECUTE'
+                                 AND (p.class = 10 OR (p.class = 6 AND ISNULL(t.is_assembly_type, 1) = 0)) THEN 1
+                            WHEN DB_ID() = 1 AND p.class = 1 AND p.major_id < 0 AND p.grantee_principal_id = 0
+                                 AND p.permission_name = N'EXECUTE' THEN 1
+                            ELSE 0 END
+            ) AS a(allowed)
+            WHERE p.state IN ('G', 'W')
+              AND ((a.allowed = 0 AND p.class <> 0) OR (a.allowed = 1 AND p.state = 'W'))
+            UNION ALL
+            -- The same backstop over sys.server_permissions: rights on logins, user-defined server roles,
+            -- endpoints and any other server securable. Allowed: CONNECT (public holds it on the T-SQL endpoints)
+            -- and VIEW DEFINITION; server-wide rights are in fn_my_permissions(SERVER) above. An allowed right in
+            -- state W is a finding as in the database arm, at server scope (class 100) CONNECT SQL and VIEW ANY
+            -- DATABASE (measured for VIEW ANY DATABASE own and through a server role, CONNECT SQL own, and CONNECT on
+            -- an endpoint own).
+            SELECT CASE WHEN a.allowed = 1 THEN p.permission_name + N' WITH GRANT OPTION' ELSE p.permission_name END,
+                   n.scope, CASE WHEN p.class <> 100 THEN ISNULL(n.name, CONCAT(N'id ', p.major_id)) END, NULL,
+                   CASE WHEN p.grantee_principal_id = SUSER_ID() THEN 1
+                        WHEN g.type = 'R' THEN IS_SRVROLEMEMBER(g.name)
+                        WHEN g.type IN ('G', 'X') THEN IS_MEMBER(g.name)
+                        WHEN a.allowed = 1 OR g.principal_id IS NOT NULL THEN 0
+                        WHEN p.class = 101 AND p.major_id = SUSER_ID() THEN 0
+                        WHEN n.class IS NULL OR n.name IS NULL THEN NULL
+                        ELSE HAS_PERMS_BY_NAME(n.name, n.class, p.permission_name) END
+            FROM sys.server_permissions AS p
+            LEFT JOIN sys.server_principals AS g ON g.principal_id = p.grantee_principal_id
+            LEFT JOIN sys.server_principals AS s ON p.class = 101 AND s.principal_id = p.major_id
+            CROSS APPLY (
+                SELECT CASE p.class
+                           WHEN 101 THEN CASE WHEN s.type = 'R' THEN N'server role' WHEN s.type IS NULL THEN N'server principal'
+                                              ELSE N'login' END
+                           WHEN 105 THEN N'endpoint'
+                           ELSE LOWER(REPLACE(p.class_desc, N'_', N' ')) COLLATE DATABASE_DEFAULT END,
+                       CASE p.class
+                           WHEN 101 THEN QUOTENAME(s.name) COLLATE DATABASE_DEFAULT
+                           WHEN 105 THEN (SELECT QUOTENAME(e.name) COLLATE DATABASE_DEFAULT FROM sys.endpoints AS e
+                                          WHERE e.endpoint_id = p.major_id)
+                       END,
+                       CASE WHEN p.class = 101 THEN CASE WHEN s.type = 'R' THEN N'SERVER ROLE' ELSE N'LOGIN' END END
+            ) AS n(scope, name, class)
+            CROSS APPLY (
+                SELECT CASE WHEN p.class = 100
+                            THEN CASE WHEN p.permission_name IN (N'CONNECT SQL', N'VIEW ANY DATABASE') THEN 1 ELSE 0 END
+                            WHEN p.permission_name IN (N'CONNECT', N'VIEW DEFINITION') THEN 1
+                            ELSE 0 END
+            ) AS a(allowed)
+            WHERE p.state IN ('G', 'W')
+              AND ((a.allowed = 0 AND p.class <> 100) OR (a.allowed = 1 AND p.state = 'W'))
         ) AS f
         WHERE ISNULL(f.state, 1) = 1
         ORDER BY f.scope, f.permission, f.object_name, f.column_name;
@@ -301,6 +471,13 @@ internal static class PermissionCheck
         await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         var database = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
         var login = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+
+        // One row per right and name: an arm and the backstop, or several grant rows, can report the same one. It is
+        // held if any of its rows is held, else it could not be checked.
+        rows = rows
+            .GroupBy(r => (r.Permission, r.Scope, r.Name, r.Column))
+            .Select(g => g.FirstOrDefault(r => !r.Unchecked, g.First()))
+            .ToList();
 
         // A column of an object whose UPDATE is already a finding adds nothing to name.
         var updatable = rows

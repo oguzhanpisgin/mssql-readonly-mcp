@@ -278,9 +278,149 @@ public sealed class SqlServerFixture : IAsyncLifetime
     /// </summary>
     public const string ClassReaderLogin = "mcp_class_reader";
 
+    /// <summary>In <see cref="Database"/>: a user without a login, target of <see cref="UserAltererLogin"/>.</summary>
+    public const string TargetUser = "mcp_target_user";
+
+    /// <summary>A login that never connects, the target of <see cref="LoginAltererLogin"/>.</summary>
+    public const string TargetLogin = "mcp_target_login";
+
+    /// <summary>The built-in T-SQL endpoint every instance has.</summary>
+    public const string TsqlEndpoint = "TSQL Default TCP";
+
+    /// <summary>The built-in route every database has.</summary>
+    public const string LocalRoute = "AutoCreatedLocal";
+
+    /// <summary>In <see cref="Database"/>: a message type, a contract and a remote service binding.</summary>
+    public const string InvoiceMessageType = "InvoiceMessage";
+    public const string InvoiceContract = "InvoiceContract";
+    public const string InvoiceBinding = "InvoiceBinding";
+
+    /// <summary>In <see cref="Database"/>: a full-text stoplist and a search property list.</summary>
+    public const string ShopStoplist = "ShopStoplist";
+    public const string ShopPropertyList = "ShopProperties";
+
+    /// <summary>In <see cref="Database"/>: a database scoped credential (its secret is generated per run).</summary>
+    public const string ShopCredential = "ShopCredential";
+
+    /// <summary>In <see cref="Database"/>: a role holding ALTER on <see cref="LocalRoute"/>.</summary>
+    public const string RouteAdminsRole = "route_admins";
+
     /// <summary>
-    /// Further logins: each holds one right beyond reading (refused), except <see cref="ClassReaderLogin"/>, which
-    /// holds only rights the check allows.
+    /// Logins that each hold one right on a user, a login, an endpoint, or a Service Broker, full-text or credential
+    /// securable (SELECT on schema dbo besides): the permission rows find each, the class rule all but the first two.
+    /// </summary>
+    public const string UserAltererLogin = "mcp_user_alterer";
+    public const string LoginAltererLogin = "mcp_login_alterer";
+    public const string EndpointAltererLogin = "mcp_endpoint_alterer";
+    public const string RouteAltererLogin = "mcp_route_alterer";
+    public const string RouteRoleAltererLogin = "mcp_route_role_alterer";
+    public const string MessageTypeAltererLogin = "mcp_message_type_alterer";
+    public const string ContractTakerLogin = "mcp_contract_taker";
+    public const string BindingAltererLogin = "mcp_binding_alterer";
+    public const string StoplistTakerLogin = "mcp_stoplist_taker";
+    public const string PropertyListAltererLogin = "mcp_property_list_alterer";
+    public const string CredentialAltererLogin = "mcp_credential_alterer";
+
+    /// <summary>In <c>master</c>: SELECT on schema dbo plus EXECUTE on the extended procedure xp_regwrite.</summary>
+    public const string SystemProcedureRunnerLogin = "mcp_system_procedure_runner";
+
+    /// <summary>
+    /// SELECT on schema dbo plus VIEW DEFINITION on <see cref="TargetUser"/>, <see cref="ReportingAppRole"/> and
+    /// <see cref="TargetLogin"/>, which shows it the grants other logins hold on them. It passes.
+    /// </summary>
+    public const string PrincipalViewerLogin = "mcp_principal_viewer";
+
+    /// <summary>
+    /// In <see cref="Database"/> (the endpoint on the server): one securable of each class no catalog grant shows the
+    /// owner of, each given to the owner login below with ALTER AUTHORIZATION. The endpoint is a stopped Service
+    /// Broker endpoint created for this.
+    /// </summary>
+    public const string OwnedMessageType = "OwnedMessage";
+    public const string OwnedContract = "OwnedContract";
+    public const string OwnedBinding = "OwnedBinding";
+    public const string OwnedRoute = "OwnedRoute";
+    public const string OwnedStoplist = "OwnedStoplist";
+    public const string OwnedPropertyList = "OwnedProperties";
+    public const string OwnedCredential = "OwnedCredential";
+    public const string OwnedEndpoint = "mcp_owned_endpoint";
+    public const int OwnedEndpointPort = 4099;
+
+    /// <summary>SELECT on schema dbo; its user (for the endpoint the login itself) owns one securable above.</summary>
+    public const string MessageTypeOwnerLogin = "mcp_message_type_owner";
+    public const string ContractOwnerLogin = "mcp_contract_owner";
+    public const string BindingOwnerLogin = "mcp_binding_owner";
+    public const string RouteOwnerLogin = "mcp_route_owner";
+    public const string StoplistOwnerLogin = "mcp_stoplist_owner";
+    public const string PropertyListOwnerLogin = "mcp_property_list_owner";
+    public const string CredentialOwnerLogin = "mcp_credential_owner";
+    public const string EndpointOwnerLogin = "mcp_endpoint_owner";
+
+    /// <summary>
+    /// SELECT on schema dbo plus one right held WITH GRANT OPTION: SELECT on schema dbo, SELECT on dbo.Customers,
+    /// SELECT on its column City, CONNECT on the database, VIEW ANY DATABASE on the server; each directly, and each
+    /// through a role it is in (a server role for VIEW ANY DATABASE).
+    /// </summary>
+    public const string SchemaGrantorLogin = "mcp_schema_grantor";
+    public const string ObjectGrantorLogin = "mcp_object_grantor";
+    public const string ColumnGrantorLogin = "mcp_column_grantor";
+    public const string DatabaseGrantorLogin = "mcp_database_grantor";
+    public const string ServerGrantorLogin = "mcp_server_grantor";
+    public const string RoleSchemaGrantorLogin = "mcp_role_schema_grantor";
+    public const string RoleObjectGrantorLogin = "mcp_role_object_grantor";
+    public const string RoleColumnGrantorLogin = "mcp_role_column_grantor";
+    public const string RoleDatabaseGrantorLogin = "mcp_role_database_grantor";
+    public const string RoleServerGrantorLogin = "mcp_role_server_grantor";
+    public const string SchemaGrantorsRole = "schema_grantors";
+    public const string ObjectGrantorsRole = "object_grantors";
+    public const string ColumnGrantorsRole = "column_grantors";
+    public const string DatabaseGrantorsRole = "database_grantors";
+    public const string ServerGrantorsRole = "mcp_database_listers";
+
+    /// <summary>SELECT on schema dbo plus database-wide SELECT or INSERT on dbo.Customers, WITH GRANT OPTION.</summary>
+    public const string DatabaseSelectGrantorLogin = "mcp_database_select_grantor";
+    public const string InsertGrantorLogin = "mcp_insert_grantor";
+
+    /// <summary>
+    /// SELECT on schema dbo; its user is in <see cref="RouteInnerRole"/>, a member of <see cref="RouteOuterRole"/>,
+    /// which holds ALTER on <see cref="LocalRoute"/>.
+    /// </summary>
+    public const string NestedRouteAltererLogin = "mcp_nested_route_alterer";
+    public const string RouteInnerRole = "route_inner";
+    public const string RouteOuterRole = "route_outer";
+
+    /// <summary>
+    /// SELECT on schema dbo; its user is in a database role that owns one securable (a schema, a message type, a
+    /// full-text stoplist), or its login is in a server role that owns one (an endpoint, a server role). No grant
+    /// row shows any of these.
+    /// </summary>
+    public const string RoleSchemaOwnerLogin = "mcp_role_schema_owner";
+    public const string RoleMessageTypeOwnerLogin = "mcp_role_message_type_owner";
+    public const string RoleStoplistOwnerLogin = "mcp_role_stoplist_owner";
+    public const string RoleEndpointOwnerLogin = "mcp_role_endpoint_owner";
+    public const string RoleServerRoleOwnerLogin = "mcp_role_server_role_owner";
+    public const string RoleOwnedSchema = "role_owned";
+    public const string RoleOwnedMessageType = "RoleOwnedMessage";
+    public const string RoleOwnedStoplist = "RoleOwnedStoplist";
+    public const string RoleOwnedEndpoint = "mcp_role_owned_endpoint";
+    public const int RoleOwnedEndpointPort = 4091;
+    public const string RoleOwnedServerRole = "mcp_role_owned_role";
+    public const string SchemaOwnersRole = "schema_owners";
+    public const string MessageTypeOwnersRole = "message_type_owners";
+    public const string StoplistOwnersRole = "stoplist_owners";
+    public const string EndpointOwnersRole = "mcp_endpoint_owners";
+    public const string ServerRoleOwnersRole = "mcp_server_role_owners";
+
+    /// <summary>
+    /// In <see cref="PublicGrantDatabase"/>: <c>public</c> holds SELECT (allowed) and INSERT (refused) on
+    /// <see cref="PublicNotesTable"/> WITH GRANT OPTION; this login has a user there and no grant of its own.
+    /// </summary>
+    public const string PublicGrantDatabase = "PublicGrantDb";
+    public const string PublicNotesTable = "PublicNotes";
+    public const string PublicGrantReaderLogin = "mcp_public_grant_reader";
+
+    /// <summary>
+    /// Further logins: each holds one right beyond reading (refused), except <see cref="ClassReaderLogin"/> and
+    /// <see cref="PrincipalViewerLogin"/>, which hold only rights the check allows, and <see cref="TargetLogin"/>.
     /// </summary>
     public static readonly IReadOnlyList<string> ExtraLogins =
     [
@@ -290,7 +430,16 @@ public sealed class SqlServerFixture : IAsyncLifetime
         CertificateControllerLogin, CertificateOwnerLogin, AsymmetricKeyAltererLogin, SymmetricKeyTakerLogin,
         AssemblyAltererLogin, ClrTypeUserLogin, XmlSchemaAltererLogin, CatalogControllerLogin, ClassReaderLogin,
         ServiceDoubleSenderLogin, ShippedQueueReceiverLogin, ShippedAssemblyTakerLogin, ShippedWriterLogin,
-        CdcDeleterLogin, PlainReaderLogin, ServerRoleAltererLogin, AppRoleAltererLogin,
+        CdcDeleterLogin, PlainReaderLogin, ServerRoleAltererLogin, AppRoleAltererLogin, TargetLogin, UserAltererLogin,
+        LoginAltererLogin, EndpointAltererLogin, RouteAltererLogin, RouteRoleAltererLogin, MessageTypeAltererLogin,
+        ContractTakerLogin, BindingAltererLogin, StoplistTakerLogin, PropertyListAltererLogin, CredentialAltererLogin,
+        SystemProcedureRunnerLogin, PrincipalViewerLogin, MessageTypeOwnerLogin, ContractOwnerLogin, BindingOwnerLogin,
+        RouteOwnerLogin, StoplistOwnerLogin, PropertyListOwnerLogin, CredentialOwnerLogin, EndpointOwnerLogin,
+        SchemaGrantorLogin, ObjectGrantorLogin, ColumnGrantorLogin, DatabaseGrantorLogin, ServerGrantorLogin,
+        RoleSchemaGrantorLogin, RoleObjectGrantorLogin, RoleColumnGrantorLogin, RoleDatabaseGrantorLogin,
+        RoleServerGrantorLogin, DatabaseSelectGrantorLogin, InsertGrantorLogin, NestedRouteAltererLogin,
+        RoleSchemaOwnerLogin, RoleMessageTypeOwnerLogin, RoleStoplistOwnerLogin, RoleEndpointOwnerLogin,
+        RoleServerRoleOwnerLogin, PublicGrantReaderLogin,
     ];
 
     /// <summary>Every seeded user table, with the database it lives in.</summary>
@@ -331,6 +480,9 @@ public sealed class SqlServerFixture : IAsyncLifetime
     /// <summary>The password of the application role <see cref="ReportingAppRole"/>.</summary>
     public string AppRolePassword { get; } = NewPassword();
 
+    /// <summary>The secret of the database scoped credential <see cref="ShopCredential"/>.</summary>
+    public string CredentialSecret { get; } = NewPassword();
+
     /// <summary>The image this run uses.</summary>
     public string Image { get; } = Environment.GetEnvironmentVariable(ImageVariable) is { Length: > 0 } image ? image : DefaultImage;
 
@@ -358,7 +510,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
     /// <summary>Every password of this run, for the leak checks.</summary>
     public IReadOnlyList<string> Secrets =>
         [SaPassword, ReaderPassword, DataReaderPassword, UpdaterPassword, WriterPassword, OwnerPassword, ErpReaderPassword,
-         ScriptLoginPassword, MasterKeyPassword, AppRolePassword, .. ExtraPasswords.Values];
+         ScriptLoginPassword, MasterKeyPassword, AppRolePassword, CredentialSecret, .. ExtraPasswords.Values];
 
     /// <summary><paramref name="name"/> as a bracketed T-SQL identifier.</summary>
     public static string Bracket(string name) => "[" + name.Replace("]", "]]", StringComparison.Ordinal) + "]";
@@ -706,6 +858,195 @@ public sealed class SqlServerFixture : IAsyncLifetime
             """);
     }
 
+    /// <summary>
+    /// Securables found through the permission rows, one login holding one right on each, and the login that only
+    /// sees other logins' grants. Runs after the class and shipped batches (the master key and the application role
+    /// exist then).
+    /// </summary>
+    private IEnumerable<(string Database, string Sql)> BackstopSeedBatches()
+    {
+        yield return ("master", $"""
+            GRANT ALTER ON LOGIN::[{TargetLogin}] TO [{LoginAltererLogin}];
+            GRANT VIEW DEFINITION ON LOGIN::[{TargetLogin}] TO [{PrincipalViewerLogin}];
+            GRANT ALTER ON ENDPOINT::[{TsqlEndpoint}] TO [{EndpointAltererLogin}];
+            CREATE USER [{SystemProcedureRunnerLogin}] FOR LOGIN [{SystemProcedureRunnerLogin}];
+            GRANT SELECT ON SCHEMA::dbo TO [{SystemProcedureRunnerLogin}];
+            GRANT EXECUTE ON sys.xp_regwrite TO [{SystemProcedureRunnerLogin}];
+            """);
+
+        // CREATE FULLTEXT STOPLIST and CREATE SEARCH PROPERTY LIST do not need Full-Text Search installed.
+        yield return (Database, $"CREATE FULLTEXT STOPLIST [{ShopStoplist}];");
+        yield return (Database, $"CREATE SEARCH PROPERTY LIST [{ShopPropertyList}];");
+
+        var users = new StringBuilder();
+        foreach (var login in new[]
+        {
+            UserAltererLogin, LoginAltererLogin, EndpointAltererLogin, RouteAltererLogin, RouteRoleAltererLogin,
+            MessageTypeAltererLogin, ContractTakerLogin, BindingAltererLogin, StoplistTakerLogin, PropertyListAltererLogin,
+            CredentialAltererLogin, PrincipalViewerLogin,
+        })
+        {
+            users.Append($"CREATE USER [{login}] FOR LOGIN [{login}];\nGRANT SELECT ON SCHEMA::dbo TO [{login}];\n");
+        }
+
+        yield return (Database, $"""
+            {users}
+            CREATE USER [{TargetUser}] WITHOUT LOGIN;
+            CREATE MESSAGE TYPE [{InvoiceMessageType}] VALIDATION = NONE;
+            CREATE CONTRACT [{InvoiceContract}] ([{InvoiceMessageType}] SENT BY ANY);
+            CREATE REMOTE SERVICE BINDING [{InvoiceBinding}] TO SERVICE N'//remote/invoices' WITH USER = [{TargetUser}], ANONYMOUS = ON;
+            CREATE DATABASE SCOPED CREDENTIAL [{ShopCredential}] WITH IDENTITY = N'probe', SECRET = N'{CredentialSecret}';
+            CREATE ROLE [{RouteAdminsRole}];
+            GRANT ALTER ON ROUTE::[{LocalRoute}] TO [{RouteAdminsRole}];
+            ALTER ROLE [{RouteAdminsRole}] ADD MEMBER [{RouteRoleAltererLogin}];
+
+            GRANT ALTER ON USER::[{TargetUser}] TO [{UserAltererLogin}];
+            GRANT ALTER ON ROUTE::[{LocalRoute}] TO [{RouteAltererLogin}];
+            GRANT ALTER ON MESSAGE TYPE::[{InvoiceMessageType}] TO [{MessageTypeAltererLogin}];
+            GRANT TAKE OWNERSHIP ON CONTRACT::[{InvoiceContract}] TO [{ContractTakerLogin}];
+            GRANT ALTER ON REMOTE SERVICE BINDING::[{InvoiceBinding}] TO [{BindingAltererLogin}];
+            GRANT TAKE OWNERSHIP ON FULLTEXT STOPLIST::[{ShopStoplist}] TO [{StoplistTakerLogin}];
+            GRANT ALTER ON SEARCH PROPERTY LIST::[{ShopPropertyList}] TO [{PropertyListAltererLogin}];
+            GRANT ALTER ON DATABASE SCOPED CREDENTIAL::[{ShopCredential}] TO [{CredentialAltererLogin}];
+
+            GRANT VIEW DEFINITION ON USER::[{TargetUser}] TO [{PrincipalViewerLogin}];
+            GRANT VIEW DEFINITION ON APPLICATION ROLE::[{ReportingAppRole}] TO [{PrincipalViewerLogin}];
+            """);
+
+        foreach (var batch in OwnerAndGrantOptionSeedBatches())
+        {
+            yield return batch;
+        }
+    }
+
+    /// <summary>
+    /// The owners of securables no grant row shows, the logins holding an allowed right WITH GRANT OPTION, and the
+    /// login reaching a grant through a role in a role. Runs after the backstop batches (the target user exists then).
+    /// </summary>
+    private IEnumerable<(string Database, string Sql)> OwnerAndGrantOptionSeedBatches()
+    {
+        yield return ("master", $"""
+            CREATE ENDPOINT [{OwnedEndpoint}] STATE = STOPPED
+                AS TCP (LISTENER_PORT = {OwnedEndpointPort}) FOR SERVICE_BROKER (AUTHENTICATION = WINDOWS);
+            ALTER AUTHORIZATION ON ENDPOINT::[{OwnedEndpoint}] TO [{EndpointOwnerLogin}];
+            GRANT VIEW ANY DATABASE TO [{ServerGrantorLogin}] WITH GRANT OPTION;
+            CREATE SERVER ROLE [{ServerGrantorsRole}];
+            GRANT VIEW ANY DATABASE TO [{ServerGrantorsRole}] WITH GRANT OPTION;
+            ALTER SERVER ROLE [{ServerGrantorsRole}] ADD MEMBER [{RoleServerGrantorLogin}];
+            """);
+        yield return (Database, $"CREATE FULLTEXT STOPLIST [{OwnedStoplist}];");
+        yield return (Database, $"CREATE SEARCH PROPERTY LIST [{OwnedPropertyList}];");
+
+        var users = new StringBuilder();
+        foreach (var login in new[]
+        {
+            MessageTypeOwnerLogin, ContractOwnerLogin, BindingOwnerLogin, RouteOwnerLogin, StoplistOwnerLogin,
+            PropertyListOwnerLogin, CredentialOwnerLogin, EndpointOwnerLogin, SchemaGrantorLogin, ObjectGrantorLogin,
+            ColumnGrantorLogin, DatabaseGrantorLogin, ServerGrantorLogin, RoleSchemaGrantorLogin, RoleObjectGrantorLogin,
+            RoleColumnGrantorLogin, RoleDatabaseGrantorLogin, RoleServerGrantorLogin, DatabaseSelectGrantorLogin,
+            InsertGrantorLogin, NestedRouteAltererLogin,
+        })
+        {
+            users.Append($"CREATE USER [{login}] FOR LOGIN [{login}];\nGRANT SELECT ON SCHEMA::dbo TO [{login}];\n");
+        }
+
+        yield return (Database, $"""
+            {users}
+            CREATE MESSAGE TYPE [{OwnedMessageType}] VALIDATION = NONE;
+            CREATE CONTRACT [{OwnedContract}] ([{OwnedMessageType}] SENT BY ANY);
+            CREATE REMOTE SERVICE BINDING [{OwnedBinding}] TO SERVICE N'//remote/owned' WITH USER = [{TargetUser}], ANONYMOUS = ON;
+            CREATE ROUTE [{OwnedRoute}] WITH ADDRESS = N'TCP://10.0.0.2:4022';
+            CREATE DATABASE SCOPED CREDENTIAL [{OwnedCredential}] WITH IDENTITY = N'probe', SECRET = N'{CredentialSecret}';
+            ALTER AUTHORIZATION ON MESSAGE TYPE::[{OwnedMessageType}] TO [{MessageTypeOwnerLogin}];
+            ALTER AUTHORIZATION ON CONTRACT::[{OwnedContract}] TO [{ContractOwnerLogin}];
+            ALTER AUTHORIZATION ON REMOTE SERVICE BINDING::[{OwnedBinding}] TO [{BindingOwnerLogin}];
+            ALTER AUTHORIZATION ON ROUTE::[{OwnedRoute}] TO [{RouteOwnerLogin}];
+            ALTER AUTHORIZATION ON FULLTEXT STOPLIST::[{OwnedStoplist}] TO [{StoplistOwnerLogin}];
+            ALTER AUTHORIZATION ON SEARCH PROPERTY LIST::[{OwnedPropertyList}] TO [{PropertyListOwnerLogin}];
+            ALTER AUTHORIZATION ON DATABASE SCOPED CREDENTIAL::[{OwnedCredential}] TO [{CredentialOwnerLogin}];
+
+            GRANT SELECT ON SCHEMA::dbo TO [{SchemaGrantorLogin}] WITH GRANT OPTION;
+            GRANT SELECT ON dbo.Customers TO [{ObjectGrantorLogin}] WITH GRANT OPTION;
+            GRANT SELECT ON dbo.Customers (City) TO [{ColumnGrantorLogin}] WITH GRANT OPTION;
+            GRANT CONNECT TO [{DatabaseGrantorLogin}] WITH GRANT OPTION;
+            GRANT SELECT TO [{DatabaseSelectGrantorLogin}] WITH GRANT OPTION;
+            GRANT INSERT ON dbo.Customers TO [{InsertGrantorLogin}] WITH GRANT OPTION;
+            CREATE ROLE [{SchemaGrantorsRole}];
+            GRANT SELECT ON SCHEMA::dbo TO [{SchemaGrantorsRole}] WITH GRANT OPTION;
+            ALTER ROLE [{SchemaGrantorsRole}] ADD MEMBER [{RoleSchemaGrantorLogin}];
+            CREATE ROLE [{ObjectGrantorsRole}];
+            GRANT SELECT ON dbo.Customers TO [{ObjectGrantorsRole}] WITH GRANT OPTION;
+            ALTER ROLE [{ObjectGrantorsRole}] ADD MEMBER [{RoleObjectGrantorLogin}];
+            CREATE ROLE [{ColumnGrantorsRole}];
+            GRANT SELECT ON dbo.Customers (City) TO [{ColumnGrantorsRole}] WITH GRANT OPTION;
+            ALTER ROLE [{ColumnGrantorsRole}] ADD MEMBER [{RoleColumnGrantorLogin}];
+            CREATE ROLE [{DatabaseGrantorsRole}];
+            GRANT CONNECT TO [{DatabaseGrantorsRole}] WITH GRANT OPTION;
+            ALTER ROLE [{DatabaseGrantorsRole}] ADD MEMBER [{RoleDatabaseGrantorLogin}];
+
+            CREATE ROLE [{RouteInnerRole}];
+            CREATE ROLE [{RouteOuterRole}];
+            ALTER ROLE [{RouteInnerRole}] ADD MEMBER [{NestedRouteAltererLogin}];
+            ALTER ROLE [{RouteOuterRole}] ADD MEMBER [{RouteInnerRole}];
+            GRANT ALTER ON ROUTE::[{LocalRoute}] TO [{RouteOuterRole}];
+            """);
+
+        foreach (var batch in RoleOwnerAndPublicGrantSeedBatches())
+        {
+            yield return batch;
+        }
+    }
+
+    /// <summary>
+    /// Securables owned by a role the login is in (database and server), and <c>public</c> holding rights
+    /// WITH GRANT OPTION in a database of its own, so that those grants reach no other test's login. The endpoint
+    /// is a stopped database mirroring endpoint: an instance takes one Service Broker endpoint only (error 7807).
+    /// </summary>
+    private IEnumerable<(string Database, string Sql)> RoleOwnerAndPublicGrantSeedBatches()
+    {
+        yield return ("master", $"""
+            CREATE SERVER ROLE [{EndpointOwnersRole}];
+            ALTER SERVER ROLE [{EndpointOwnersRole}] ADD MEMBER [{RoleEndpointOwnerLogin}];
+            CREATE ENDPOINT [{RoleOwnedEndpoint}] STATE = STOPPED
+                AS TCP (LISTENER_PORT = {RoleOwnedEndpointPort}) FOR DATABASE_MIRRORING (ROLE = PARTNER, AUTHENTICATION = WINDOWS);
+            ALTER AUTHORIZATION ON ENDPOINT::[{RoleOwnedEndpoint}] TO [{EndpointOwnersRole}];
+            CREATE SERVER ROLE [{ServerRoleOwnersRole}];
+            ALTER SERVER ROLE [{ServerRoleOwnersRole}] ADD MEMBER [{RoleServerRoleOwnerLogin}];
+            CREATE SERVER ROLE [{RoleOwnedServerRole}] AUTHORIZATION [{ServerRoleOwnersRole}];
+            CREATE DATABASE [{PublicGrantDatabase}];
+            """);
+
+        var users = new StringBuilder();
+        foreach (var login in new[]
+        {
+            RoleSchemaOwnerLogin, RoleMessageTypeOwnerLogin, RoleStoplistOwnerLogin, RoleEndpointOwnerLogin,
+            RoleServerRoleOwnerLogin,
+        })
+        {
+            users.Append($"CREATE USER [{login}] FOR LOGIN [{login}];\nGRANT SELECT ON SCHEMA::dbo TO [{login}];\n");
+        }
+
+        yield return (Database, $"""
+            {users}
+            CREATE ROLE [{SchemaOwnersRole}];
+            ALTER ROLE [{SchemaOwnersRole}] ADD MEMBER [{RoleSchemaOwnerLogin}];
+            CREATE ROLE [{MessageTypeOwnersRole}];
+            ALTER ROLE [{MessageTypeOwnersRole}] ADD MEMBER [{RoleMessageTypeOwnerLogin}];
+            CREATE MESSAGE TYPE [{RoleOwnedMessageType}] AUTHORIZATION [{MessageTypeOwnersRole}] VALIDATION = NONE;
+            CREATE ROLE [{StoplistOwnersRole}];
+            ALTER ROLE [{StoplistOwnersRole}] ADD MEMBER [{RoleStoplistOwnerLogin}];
+            """);
+        yield return (Database, $"CREATE SCHEMA [{RoleOwnedSchema}] AUTHORIZATION [{SchemaOwnersRole}];");
+        yield return (Database, $"CREATE FULLTEXT STOPLIST [{RoleOwnedStoplist}] AUTHORIZATION [{StoplistOwnersRole}];");
+
+        yield return (PublicGrantDatabase, $"""
+            CREATE TABLE dbo.{PublicNotesTable} (Id int NOT NULL PRIMARY KEY);
+            CREATE USER [{PublicGrantReaderLogin}] FOR LOGIN [{PublicGrantReaderLogin}];
+            GRANT SELECT ON dbo.{PublicNotesTable} TO public WITH GRANT OPTION;
+            GRANT INSERT ON dbo.{PublicNotesTable} TO public WITH GRANT OPTION;
+            """);
+    }
+
     private IEnumerable<(string Database, string Sql)> SeedBatches()
     {
         yield return ("master", $"CREATE DATABASE [{Database}]; CREATE DATABASE [{OtherDatabase}]; CREATE DATABASE [{SalesDatabase}]; " +
@@ -858,6 +1199,11 @@ public sealed class SqlServerFixture : IAsyncLifetime
         }
 
         foreach (var batch in ShippedSeedBatches())
+        {
+            yield return batch;
+        }
+
+        foreach (var batch in BackstopSeedBatches())
         {
             yield return batch;
         }
