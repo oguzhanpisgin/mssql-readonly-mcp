@@ -25,9 +25,13 @@ Job `build` (read-only token, no npm code), both triggers:
 Job `bundle` (read-only token), both triggers: packs one MCPB bundle per platform from the publish output of
 `build` with the MCPB CLI pinned in `packaging/mcpb/package-lock.json` (`npm ci --ignore-scripts`), and uploads only
 the `.mcpb` files (artifact `release-bundles`). It is the only job that runs npm code. The bundles are therefore
-only as trustworthy as that pinned CLI and its packages (`npm audit` on 2026-11-12: six known issues with no fix,
-three of them high); their attestation shows that this workflow built them, not that the CLI left the server files
-unchanged.
+only as trustworthy as that pinned CLI and its packages; their attestation shows that this workflow built them, not
+that the CLI left the server files unchanged. `packaging/mcpb/package.json` overrides two packages under the CLI, so
+the CLI runs with dependency versions its author did not pin: `tmp` 0.2.7 where its tree asks for 0.0.33, and `zod`
+4.6.7 where it asks for 3.x, because no version in the ranges it asks for has the fix for their known
+vulnerabilities. With them, `npm audit --package-lock-only` on 2026-11-13 reported 0 vulnerabilities, and bundles
+packed on Windows with the old and the new lock file held the same files with the same content
+([Security testing](security-testing.md#dependency-alerts)).
 
 Job `release`, tag runs only (the one job with write permissions: `contents`, `id-token`, `attestations`):
 
@@ -89,7 +93,9 @@ file of the tagged commit. This ruleset is not set up yet.
 - No builds for other platforms (for example Linux arm64, macOS x64, Windows arm64).
 - No entry in the MCP registry or any other listing.
 
-`.github/dependabot.yml` is configured to propose updates of the pinned MCPB CLI in `packaging/mcpb`.
+`.github/dependabot.yml` is configured to propose updates of the pinned MCPB CLI in `packaging/mcpb`. Dependabot
+does not edit the `overrides` there: a later fix in `tmp` or `zod`, and any update of the CLI, needs the overrides
+checked by hand, because npm applies an override silently, even where the CLI asks for another version.
 
 ## Not yet verified
 

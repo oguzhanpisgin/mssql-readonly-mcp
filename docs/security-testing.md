@@ -4,9 +4,10 @@ This page records the security tests run before the first release: what was atta
 on which commit and date, what came out, and what was not tested. The tests are the maintainer's own: the attack
 tests and the code security review were run apart from the writing of the code and changed nothing in it. This is
 not a third-party audit, not a penetration test by an outside firm, and not a certification. Every attack run, the
-code security review and the scans took place on 2026-11-12, and the last test suites on 2026-11-13; times below are
-UTC. Attack test run 5 tested `a38fd06`. The test suites ran last on `eededa6`, which only removes an unused
-method and an unused test counter from the code of `a38fd06`; run 5 did not test it.
+code security review and the scans took place on 2026-11-12, and the last test suites and a rescan of the working
+tree with the npm overrides (trivy, osv-scanner, npm audit) on 2026-11-13; times below are UTC. Attack test run 5
+tested `a38fd06`. The test suites ran last on `eededa6`, which only removes an unused method and an unused test
+counter from the code of `a38fd06`; run 5 did not test it.
 
 | Tests | Public commit | Tree |
 | --- | --- | --- |
@@ -17,19 +18,27 @@ method and an unused test counter from the code of `a38fd06`; run 5 did not test
 | Attack test, run 5; test suites | `a38fd062c301937699e254826dbaad0b90e1c83d` | `0c5d6423cfb3787f6154e3427bfa73b29fe5c44d` |
 | Test suites | `eededa69dac5ba8459d423487847cfdb171ecb48` | `3a84226272a09459d3613da021211367828448ff` |
 
-This page landed in a later commit that changes documentation only. To check in a clone that the code is still the
-same as in `eededa6` (no output means unchanged):
+Later commits change documentation and, on 2026-11-13, two files under `packaging/mcpb`: `package.json` and
+`package-lock.json`, the npm overrides for the MCPB CLI that packs the bundles
+([Dependency alerts](#dependency-alerts)). To check in a clone that the server source, the tests, the scripts, the
+workflows and the rest of `packaging` are still those of `eededa6`:
 
 ```powershell
 git diff --stat eededa6 HEAD -- src tests scripts packaging .github
 ```
+
+The expected output lists exactly those two files, `packaging/mcpb/package-lock.json` and
+`packaging/mcpb/package.json`, and a summary line of 2 files changed; any other file in it means the code differs
+from what was tested.
 
 Times: run 1, server built at 03:56; run 2, 05:59 to 07:58; run 3, 08:08 to 11:18; run 4, 15:43 to 20:00; run 5,
 22:16 to 23:59; code security review, 06:08; scans, round 1 at 05:59 and round 2 at 08:05; test suites, on
 `7f98bfd` finished at 07:05, on `12706a1` 15:17 to 15:30, on `a38fd06` 21:04 to 21:15, on `eededa6` 00:13 to 00:24
 on 2026-11-13 (its Release build with warnings as errors at 05:44), the reruns of two U-1 tests 00:25 to 00:32 (on
 `a38fd06` and `eededa6`), and of the unstable one alone on `a38fd06` 00:32 to 00:36; CI and CodeQL results read at
-07:09. The scans, CI and CodeQL rows below are of `7f98bfd`.
+07:09. The scans, CI and CodeQL rows below are of `7f98bfd`, except the three scan rows dated 2026-11-13, which are
+of a working tree with the code of `eededa6` and the npm overrides in `packaging/mcpb` (see
+[Dependency alerts](#dependency-alerts)).
 
 ## What was tested
 
@@ -49,6 +58,9 @@ on 2026-11-13 (its Release build with warnings as errors at 05:44), the reruns o
 | File system scan | trivy 0.75.0, scanners `vuln`, `secret`, `misconfig` | `7f98bfd` | 2 vulnerabilities, both in `packaging/mcpb/package-lock.json`: `tmp` 0.0.33, CVE-2026-44705 HIGH and CVE-2025-54798 LOW; no secret and no misconfiguration reported |
 | Dependency scan | osv-scanner 2.6.0 (osv-scalibr 0.5.2), `scan source -r` | `7f98bfd`: `packaging/mcpb/package-lock.json` (55 packages), `Directory.Build.props` and the six project files | NuGet: none. npm, in `packaging/mcpb/package-lock.json`: `tmp` 0.0.33 GHSA-52f5-9888-hmc6 (CVSS 2.5) and GHSA-ph9p-34f9-6g65 (7.7), `zod` 3.25.76 GHSA-mrhx-c7xc-m3w5 (8.2) |
 | npm packages | `npm audit --package-lock-only`, npm 12.2.2 | `7f98bfd`, `packaging/mcpb/package-lock.json` | 6 vulnerable packages (3 low, 3 high): `tmp` and `zod`, each "No fix available", and four packages that depend on them, the MCPB CLI among them |
+| File system scan, 2026-11-13 | trivy 0.75.0 (database of 2026-11-13), scanners `vuln`, `secret`, `misconfig` | A working tree with the code of `eededa6`, the npm overrides `tmp` 0.2.7 and `zod` 4.6.7 in `packaging/mcpb/package.json` and the lock file regenerated | 0 vulnerabilities in `packaging/mcpb/package-lock.json`; no secret and no misconfiguration reported. trivy did not report the `zod` advisory on the old lock file either (row of `7f98bfd` above, and on 2026-11-13 with the same database), so this zero says nothing about `zod`; npm audit and osv-scanner below do |
+| Dependency scan, 2026-11-13 | osv-scanner 2.6.0 (osv-scalibr 0.5.2), `scan source -r` | The same working tree: `packaging/mcpb/package-lock.json` (54 packages), `Directory.Build.props` and the six project files | No issues found |
+| npm packages, 2026-11-13 | `npm audit --package-lock-only`, npm 12.2.2 | The same working tree, `packaging/mcpb/package-lock.json` | 0 vulnerabilities |
 | Test suites | `dotnet build`, `dotnet test` (SDK version not recorded in the run log) | `7f98bfd`; integration tests on the SQL Server 2022-CU27, 2019-CU32-GDR13 and 2025-CU9-GDR1 images | Build: 0 warnings, 0 errors. Passed, 0 failed: Gate 364, Audit 55; Integration 245 on each of the three images |
 | Test suites | `dotnet build`, `dotnet test` (SDK version not recorded in the run log) | `12706a1`; integration tests on the same three images | Build: 0 warnings, 0 errors. Passed, 0 failed: Gate 364, Audit 55; Integration 255 on each of the three images |
 | Test suites | `dotnet build`, `dotnet test` (SDK version not recorded in the run log); a Release build with warnings as errors | `a38fd06`; integration tests on the same three images, on Windows | Build: 0 warnings, 0 errors; Release build with warnings as errors: 0 warnings, 0 errors. Passed, 0 failed: Gate 367, Audit 55; Integration 259 on each of the three images, in this run; one of its U-1 tests failed later in 2 of 13 runs outside the full suite on this code (next row and U-1R) |
@@ -57,7 +69,7 @@ on 2026-11-13 (its Release build with warnings as errors at 05:44), the reruns o
 | Code scanning | CodeQL through `github/codeql-action` v4.39.3, languages `csharp` and `actions` (CodeQL version not recorded) | `7f98bfd` | Run 43172714825: success; open code scanning alerts: 0 |
 
 Scans, round 1, on `46baefb` with the same tools and versions gave the same results; gitleaks read 10 commits there.
-npm audit ran on `7f98bfd` only.
+npm audit ran on `7f98bfd` and, on 2026-11-13, on the lock file with the overrides.
 
 ## Attack tests
 
@@ -344,9 +356,9 @@ the answer were repeated alone, one engine at a time. Times below are given for 
 ## Findings
 
 Severity is the tester's or reviewer's: CRITICAL, HIGH, MEDIUM, LOW or NOTE. The attack tests and the code security
-review made no finding of severity HIGH or above, and three of severity MEDIUM (C-1, U-1 and U-1R). The dependency scans
-report two
-HIGH advisories in the build-time packaging tool ("Open dependency alerts" below).
+review made no finding of severity HIGH or above, and three of severity MEDIUM (C-1, U-1 and U-1R). The dependency
+scans of 2026-11-12 reported three advisories, two of them HIGH, in packages under the build-time packaging tool;
+since 2026-11-13 its lock file resolves versions outside their ranges ([Dependency alerts](#dependency-alerts) below).
 
 ### Attack tests
 
@@ -388,7 +400,7 @@ HIGH advisories in the build-time packaging tool ("Open dependency alerts" below
 | C-9 | NOTE | No NuGet lock file: transitive versions and package hashes are not pinned for release builds | Accepted for the first release |
 | C-10 | NOTE | The login script's stated character limits did not cover every use of its variables | Fixed in the header comment of `scripts/create-readonly-login.sql` |
 
-### Open dependency alerts
+### Dependency alerts
 
 On 2026-11-12 the public repository had 3 open Dependabot alerts, none dismissed, all in
 `packaging/mcpb/package-lock.json`, the pinned MCPB CLI that packs the bundles at build time:
@@ -402,6 +414,43 @@ The scans above count the same lock file differently. Dependabot (3) and osv-sca
 `tmp`, `zod`, and the chain that depends on them, `external-editor`, `@inquirer/editor`, `@inquirer/prompts` and the
 MCPB CLI. These npm packages run only in the release workflow's bundle job; what that means for the bundles is in
 [Releasing](releasing.md#what-the-workflow-does).
+
+On 2026-11-13 `packaging/mcpb/package.json` gained two npm `overrides` with exact versions, and the lock file was
+regenerated with the integrity hash of each package:
+
+| Package | Before | Now | What asks for it | Advisory ranges |
+| --- | --- | --- | --- | --- |
+| `tmp` | 0.0.33 | 0.2.7 | `external-editor` 3.1.0 (under `@inquirer/prompts`): `^0.0.33` | GHSA-ph9p-34f9-6g65: below 0.2.6; GHSA-52f5-9888-hmc6: 0.2.3 and below |
+| `zod` | 3.25.76 | 4.6.7 | the MCPB CLI 2.1.2: `^3.25.67` | GHSA-mrhx-c7xc-m3w5: below 4.6.6 |
+
+No version that the CLI's tree asks for has a fix: `^0.0.33` admits only 0.0.33, and 3.25.76 is the last `zod` 3.x,
+inside the advisory's range. The CLI therefore runs with dependency versions its author did not pin, `zod` among them
+at a major version it does not declare. The lock file now resolves no version that any of the three advisories
+covers (the scan rows dated 2026-11-13 above); `os-tmpdir`, which only `tmp` 0.0.33 used, left the lock file (54
+packages instead of 55). Dependabot alerts belong to the public repository's default branch; this page records what
+the lock file resolves, not the state of the alerts.
+
+What was checked on 2026-11-13, on Windows, with the CLI installed by `npm ci --ignore-scripts` from the old lock
+file and from the new one:
+
+- The CLI imports `zod` through its root entry, which in 4.x is the `zod` 4 API. `mcpb validate` passes the
+  manifest of each of the three bundles with both, and rejects the same seven invalid manifests on the same fields;
+  the error texts are worded differently (`name: Required` before, `name: Invalid input: expected string, received
+  undefined` now).
+- `mcpb pack`, as the bundle job runs it through `packaging/build-release.ps1`, from one publish output per
+  platform: for each of the three bundles the same file list, the same `manifest.json` and the same SHA-256 for
+  every file, and the files under `server/` equal to the publish output. The `.mcpb` files differ only in the zip
+  time stamps, which the CLI sets to the time of packing, so two packs with the same CLI differ in the same way;
+  with the time stamps set to zero the old and new bundles are byte for byte the same.
+- `info`, `unpack`, `clean`, `sign --self-signed`, `unsign` and `init --yes` gave the same output with both.
+  `verify` after `sign --self-signed` answers "Extension is not signed" with both.
+- No CLI command calls `tmp`: it is reached only through the `editor` prompt of `@inquirer/prompts`, which the CLI
+  does not use. Called the way that prompt calls it, `external-editor` wrote, read back and removed its temporary
+  file with `tmp` 0.2.7; with 0.2.7, a prefix with `..` or a directory outside the temporary folder is refused,
+  where 0.0.33 returned a path outside it.
+
+Not checked: packing on Linux, as the release workflow does (the zip then records each file's mode; that code is in
+the CLI, not in `tmp` or `zod`), and a run of the release workflow with the new lock file.
 
 ## What was not tested
 
@@ -566,8 +615,11 @@ trivy fs --scanners vuln,secret,misconfig .
 osv-scanner scan source -r .
 cd packaging/mcpb
 npm audit --package-lock-only
+npm ls --package-lock-only --all tmp zod
 cd ../..
 ```
+
+`npm ls` prints the `tmp` and `zod` versions the lock file resolves; with the overrides it marks them `overridden`.
 
 The test suites, as in [Building and testing](building-and-testing.md) (Docker and PowerShell 7 needed):
 

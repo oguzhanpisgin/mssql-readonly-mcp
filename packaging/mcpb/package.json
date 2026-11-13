@@ -1,9 +1,13 @@
 {
   "name": "mssql-readonly-mcp-mcpb-tools",
   "private": true,
-  "description": "Pins the MCPB CLI that release.yml uses to pack the .mcpb bundles. Not part of the server.",
+  "description": "Pins the MCPB CLI that release.yml uses to pack the .mcpb bundles. Not part of the server. The overrides replace two packages under the CLI that have security advisories (docs/security-testing.md).",
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/mcpb": "2.1.2"
+  },
+  "overrides": {
+    "tmp": "0.2.7",
+    "zod": "4.6.7"
   }
 }
