@@ -1,30 +1,87 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
   <title id="title">mssql-readonly-mcp</title>
-  <desc id="desc">Title image: a database cylinder with a magnifying glass, the name mssql-readonly-mcp, and the sentence: An MCP server that lets an AI assistant read one on-premises SQL Server database.</desc>
+  <desc id="desc">Title image: the project logo, a SQL database behind a conversation-shaped magnifying lens with table rows and MCP on its handle; the name mssql-readonly-mcp, and the sentence: An MCP server that lets an AI assistant read one on-premises SQL Server database.</desc>
   <style>
     text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:#e6edf3}
     .mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
     .name{font-size:50px;font-weight:700}
-    .lead{font-size:32px}
+    .lead{font-size:30px}
     .mut{fill:#9198a1}
     .panel{fill:#151b23;stroke:#3d444d;stroke-width:2}
-    .db{fill:#10243e;stroke:#4493f8;stroke-width:5;stroke-linejoin:round}
-    .lens{fill:#151b23;stroke:#e6edf3;stroke-width:6}
-    .handle{fill:none;stroke:#e6edf3;stroke-width:10;stroke-linecap:round}
   </style>
 
   <rect class="panel" x="1" y="1" width="958" height="238" rx="16"/>
 
-  <!-- Mark: a database cylinder read through a magnifying glass (self-drawn) -->
-  <g transform="translate(-12 33) scale(0.72)">
-    <path class="db" d="M52 66 V166 A44 14 0 0 0 140 166 V66"/>
-    <ellipse class="db" cx="96" cy="66" rx="44" ry="14"/>
-    <path class="db" style="fill:none" d="M52 100 A44 14 0 0 0 140 100 M52 134 A44 14 0 0 0 140 134"/>
-    <circle class="lens" cx="138" cy="150" r="26"/>
-    <path class="handle" d="M157 169 L176 188"/>
+  <defs>
+    <linearGradient id="logo-body" gradientUnits="userSpaceOnUse" x1="167" y1="280" x2="839" y2="420"><stop offset="0" stop-color="#6474FA"/><stop offset="0.16" stop-color="#334BEA"/><stop offset="0.46" stop-color="#142ED1"/><stop offset="0.78" stop-color="#07168F"/><stop offset="1" stop-color="#2C47E8"/></linearGradient>
+    <linearGradient id="logo-body-low" gradientUnits="userSpaceOnUse" x1="167" y1="540" x2="839" y2="700"><stop offset="0" stop-color="#4D64F1"/><stop offset="0.28" stop-color="#1539DB"/><stop offset="0.7" stop-color="#071681"/><stop offset="1" stop-color="#2749E5"/></linearGradient>
+    <linearGradient id="logo-top" gradientUnits="userSpaceOnUse" x1="370" y1="83" x2="635" y2="240"><stop offset="0" stop-color="#5378FF"/><stop offset="0.38" stop-color="#7192FF"/><stop offset="0.72" stop-color="#4271F8"/><stop offset="1" stop-color="#375EE9"/></linearGradient>
+    <linearGradient id="logo-top-edge" gradientUnits="userSpaceOnUse" x1="167" y1="160" x2="839" y2="177"><stop offset="0" stop-color="#D8E8FF"/><stop offset="0.3" stop-color="#ADCAFF"/><stop offset="0.8" stop-color="#6A8FFF"/><stop offset="1" stop-color="#4C70F7"/></linearGradient>
+    <linearGradient id="logo-seam" gradientUnits="userSpaceOnUse" x1="503" y1="320" x2="503" y2="610"><stop offset="0" stop-color="#AEFFDB"/><stop offset="0.45" stop-color="#5DF2CD"/><stop offset="1" stop-color="#27D8C5"/></linearGradient>
+    <linearGradient id="logo-rim" gradientUnits="userSpaceOnUse" x1="128" y1="443" x2="542" y2="856"><stop offset="0" stop-color="#D2FFE7"/><stop offset="0.28" stop-color="#8DFFD4"/><stop offset="0.65" stop-color="#60E7BE"/><stop offset="1" stop-color="#20B6AB"/></linearGradient>
+    <linearGradient id="logo-rim-depth" gradientUnits="userSpaceOnUse" x1="160" y1="492" x2="486" y2="920"><stop offset="0" stop-color="#47CDA9"/><stop offset="0.6" stop-color="#25C8B3"/><stop offset="1" stop-color="#086878"/></linearGradient>
+    <radialGradient id="logo-glass" gradientUnits="userSpaceOnUse" cx="402" cy="763" r="400" fx="425" fy="804"><stop offset="0" stop-color="#369FEC"/><stop offset="0.45" stop-color="#1255A5"/><stop offset="0.8" stop-color="#072F70"/><stop offset="1" stop-color="#061F54"/></radialGradient>
+    <linearGradient id="logo-header" gradientUnits="userSpaceOnUse" x1="223" y1="552" x2="500" y2="599"><stop offset="0" stop-color="#A4FFE0"/><stop offset="1" stop-color="#57E6C5"/></linearGradient>
+    <linearGradient id="logo-cell" gradientUnits="userSpaceOnUse" x1="175" y1="612" x2="499" y2="790"><stop offset="0" stop-color="#A3B4FF"/><stop offset="0.55" stop-color="#859AF6"/><stop offset="1" stop-color="#69A5F4"/></linearGradient>
+    <linearGradient id="logo-pill" gradientUnits="userSpaceOnUse" x1="180" y1="620" x2="440" y2="788"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#BCD9FF"/></linearGradient>
+    <linearGradient id="logo-connector" gradientUnits="userSpaceOnUse" x1="50" y1="-12" x2="50" y2="110"><stop offset="0" stop-color="#CBFFE6"/><stop offset="0.45" stop-color="#72EBC7"/><stop offset="1" stop-color="#1B9A99"/></linearGradient>
+    <linearGradient id="logo-collar" gradientUnits="userSpaceOnUse" x1="105" y1="-24" x2="164" y2="138"><stop offset="0" stop-color="#C6FFE5"/><stop offset="0.5" stop-color="#65E5C5"/><stop offset="1" stop-color="#169B99"/></linearGradient>
+    <linearGradient id="logo-handle" gradientUnits="userSpaceOnUse" x1="144" y1="-20" x2="373" y2="156"><stop offset="0" stop-color="#6682FF"/><stop offset="0.25" stop-color="#284EED"/><stop offset="0.7" stop-color="#122BCC"/><stop offset="1" stop-color="#07156A"/></linearGradient>
+    <linearGradient id="logo-handle-face" gradientUnits="userSpaceOnUse" x1="160" y1="-12" x2="382" y2="128"><stop offset="0" stop-color="#3860F4"/><stop offset="0.5" stop-color="#193EDB"/><stop offset="1" stop-color="#0621A9"/></linearGradient>
+  </defs>
+
+  <!-- Mark: the project logo (docs/img/logo.svg, viewBox 1024), inlined; its ids carry the prefix logo- -->
+  <g transform="translate(22 22.7) scale(0.19)">
+    <path fill="url(#logo-body-low)" d="M167 160C167 200 317 232 503 232C689 232 839 200 839 160V650C839 694 689 730 503 730C317 730 167 694 167 650Z"/>
+    <path fill="url(#logo-body-low)" d="M167 520C167 560 317 596 503 596C689 596 839 560 839 520V650C839 694 689 730 503 730C317 730 167 694 167 650Z"/>
+    <path fill="url(#logo-seam)" d="M167 505C167 548 317 584 503 584C689 584 839 548 839 505V520C839 560 689 596 503 596C317 596 167 560 167 520Z"/>
+    <path fill="url(#logo-body)" d="M167 354C167 394 317 430 503 430C689 430 839 394 839 354V505C839 548 689 584 503 584C317 584 167 548 167 505Z"/>
+    <path fill="url(#logo-seam)" d="M167 330C167 372 317 407 503 407C689 407 839 372 839 330V354C839 394 689 430 503 430C317 430 167 394 167 354Z"/>
+    <path fill="url(#logo-body)" d="M167 160C167 200 317 232 503 232C689 232 839 200 839 160V330C839 372 689 407 503 407C317 407 167 372 167 330Z"/>
+    <path fill="url(#logo-top-edge)" d="M167 160C167 119.131 317.432 86 503 86C688.568 86 839 119.131 839 160C839 200.869 688.568 234 503 234C317.432 234 167 200.869 167 160Z"/>
+    <path fill="url(#logo-top)" d="M176 155C176 117.997 322.403 88 503 88C683.597 88 830 117.997 830 155C830 192.003 683.597 222 503 222C322.403 222 176 192.003 176 155Z"/>
+    <path fill="none" stroke="#B4D0FF" stroke-width="2.5" opacity=".72" d="M174 160C186 201 335 225 503 225C658 225 788 206 826 174"/>
+    <g transform="translate(305 232) scale(1.299 1.313)" data-word="SQL" data-lettering="original-geometry"><g transform="translate(0 0)" data-letter="S"><path fill="#FFFFFF" fill-rule="nonzero" d="M86 12L71 31C64 25 56 22 46 22C35 22 29 25 29 31C29 37 36 40 49 43L57 45C77 50 88 58 88 75C88 95 72 107 47 107C26 107 10 100 0 88L15 69C25 79 36 85 49 85C59 85 65 82 65 76C65 70 58 68 45 65L36 63C17 59 6 50 6 33C6 13 22 1 47 1C62 1 75 5 86 12Z"/></g><g transform="translate(100 0)" data-letter="Q"><path fill="#FFFFFF" fill-rule="evenodd" d="M50 0C21 0 3 19 3 51C3 83 21 102 50 102C79 102 97 83 97 51C97 19 79 0 50 0ZM50 25C64 25 73 34 73 51C73 68 64 77 50 77C36 77 27 68 27 51C27 34 36 25 50 25Z"/><path fill="#FFFFFF" fill-rule="nonzero" d="M58 63L99 96C102 98 102 100 100 103L91 113C89 115 86 115 83 112L44 79Z"/></g><g transform="translate(214 0)" data-letter="L"><path fill="#FFFFFF" fill-rule="nonzero" d="M4 1H24C27 1 29 3 29 6V80H75C78 80 80 82 80 85V103C80 106 78 108 75 108H4C1 108 0 106 0 103V6C0 3 1 1 4 1Z"/></g></g>
+    <g transform="translate(556 687) rotate(16)">
+    <path fill="url(#logo-connector)" d="M25 0H121C134.807 0 146 11.193 146 25V63C146 76.807 134.807 88 121 88H25C11.193 88 0 76.807 0 63V25C0 11.193 11.193 0 25 0Z"/>
+    <path fill="url(#logo-collar)" d="M122 -21H130C147.121 -21 161 -7.121 161 10V95C161 112.121 147.121 126 130 126H122C104.879 126 91 112.121 91 95V10C91 -7.121 104.879 -21 122 -21Z"/>
+    <path fill="url(#logo-handle)" d="M194 -22H368C402.242 -22 430 5.758 430 40V83C430 117.242 402.242 145 368 145H194C159.758 145 132 117.242 132 83V40C132 5.758 159.758 -22 194 -22Z"/>
+    <path fill="url(#logo-handle-face)" d="M199 -15H362C392.928 -15 418 10.072 418 41V72C418 102.928 392.928 128 362 128H199C168.072 128 143 102.928 143 72V41C143 10.072 168.072 -15 199 -15Z"/>
+    <path fill="none" stroke="#9FB6FF" stroke-width="3" opacity=".5" d="M158 -1C168 -13 182 -15 200 -15H357C390 -15 409 -1 417 20"/>
+    <g transform="translate(165 22) scale(0.713 0.815)" data-word="MCP" data-lettering="original-geometry"><g transform="translate(0 0)" data-letter="M"><path fill="#FFFFFF" fill-rule="nonzero" d="M4 0H23C25 0 27 1 28 4L55 48L82 4C83 1 85 0 88 0H107C109 0 111 2 111 5V103C111 106 109 108 106 108H87C84 108 82 106 82 103V48L64 77C62 80 60 81 56 81H54C51 81 48 80 46 77L28 48V103C28 106 26 108 23 108H4C1 108 0 106 0 103V5C0 2 1 0 4 0Z"/></g><g transform="translate(123 0)" data-letter="C"><path fill="#FFFFFF" fill-rule="nonzero" d="M92 16L76 34C68 26 61 23 51 23C34 23 26 35 26 53C26 72 35 84 51 84C62 84 70 79 78 71L94 89C83 102 69 108 49 108C18 108 0 87 0 54C0 21 19 0 50 0C68 0 81 6 92 16Z"/></g><g transform="translate(229 0)" data-letter="P"><path fill="#FFFFFF" fill-rule="evenodd" d="M4 0H47C76 0 92 13 92 37C92 61 75 75 47 75H28V103C28 106 26 108 23 108H4C1 108 0 106 0 103V5C0 2 1 0 4 0ZM28 23V52H46C58 52 64 47 64 37C64 28 58 23 46 23Z"/></g></g>
+    </g>
+    <path fill="url(#logo-rim-depth)" d="M335 381C477 381 587 497 590 642C593 788 486 906 350 915C296 919 246 906 208 884L119 922C108 927 103 921 108 909L145 833C100 786 77 723 77 657C77 505 191 381 335 381Z"/>
+    <path fill="url(#logo-rim)" d="M333 381C470 381 576 493 579 634C582 776 480 894 345 900C291 903 246 891 209 869L115 915L159 821C111 773 86 718 86 650C86 503 195 381 333 381Z"/>
+    <path fill="none" stroke="#DFFFF2" stroke-width="3" opacity=".65" d="M112 913L158 822C112 776 87 714 87 650C87 508 194 386 331 382"/>
+    <path fill="#0C496A" d="M117 646C117 521.736 214.602 421 335 421C455.398 421 553 521.736 553 646C553 770.264 455.398 871 335 871C214.602 871 117 770.264 117 646Z"/>
+    <path fill="url(#logo-glass)" d="M131 641C131 522.259 223.677 426 338 426C452.323 426 545 522.259 545 641C545 759.741 452.323 856 338 856C223.677 856 131 759.741 131 641Z"/>
+    <path fill="none" stroke="#64DDFC" stroke-width="8" opacity=".65" d="M160 773C206 850 283 876 356 869C446 862 508 806 536 744"/>
+    <path fill="url(#logo-header)" d="M183 552H272C276 552 279 555 278 560L273 593C272 597 269 599 265 599H170C164 599 162 596 164 591L175 559C176 555 179 552 183 552Z"/>
+    <path fill="url(#logo-header)" d="M291 552H389C393 552 396 555 396 559L394 592C394 597 391 599 387 599H286C281 599 279 596 280 591L284 559C285 555 287 552 291 552Z"/>
+    <path fill="url(#logo-header)" d="M411 552H502C508 552 511 556 513 562L520 591C522 596 519 599 514 599H406C402 599 400 597 400 593L402 559C402 555 405 552 411 552Z"/>
+    <path fill="url(#logo-cell)" d="M159 610H272L266 665H148C148 645 151 627 159 610Z"/>
+    <path fill="url(#logo-cell)" d="M282 610H394L391 665H276Z"/>
+    <path fill="url(#logo-cell)" d="M402 610H520C523 625 524 644 523 665H400Z"/>
+    <path fill="url(#logo-cell)" d="M148 673H265L259 726H151C148 710 147 691 148 673Z"/>
+    <path fill="url(#logo-cell)" d="M276 673H391L388 726H270Z"/>
+    <path fill="url(#logo-cell)" d="M400 673H522C520 693 516 710 508 726H397Z"/>
+    <path fill="url(#logo-cell)" d="M154 734H258L252 786H180C168 769 160 752 154 734Z"/>
+    <path fill="url(#logo-cell)" d="M269 734H388L385 786H263Z"/>
+    <path fill="url(#logo-cell)" d="M397 734H504C496 754 484 773 468 786H394Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M184 625H244C248.971 625 253 629.029 253 634V634C253 638.971 248.971 643 244 643H184C179.029 643 175 638.971 175 634V634C175 629.029 179.029 625 184 625Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M300 625H364C368.971 625 373 629.029 373 634V634C373 638.971 368.971 643 364 643H300C295.029 643 291 638.971 291 634V634C291 629.029 295.029 625 300 625Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M423 625H489C493.971 625 498 629.029 498 634V634C498 638.971 493.971 643 489 643H423C418.029 643 414 638.971 414 634V634C414 629.029 418.029 625 423 625Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M180 687H243C247.971 687 252 691.029 252 696V696C252 700.971 247.971 705 243 705H180C175.029 705 171 700.971 171 696V696C171 691.029 175.029 687 180 687Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M297 687H363C367.971 687 372 691.029 372 696V696C372 700.971 367.971 705 363 705H297C292.029 705 288 700.971 288 696V696C288 691.029 292.029 687 297 687Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M418 687H483C487.971 687 492 691.029 492 696V696C492 700.971 487.971 705 483 705H418C413.029 705 409 700.971 409 696V696C409 691.029 413.029 687 418 687Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M196 749H234C238.971 749 243 753.029 243 758V758C243 762.971 238.971 767 234 767H196C191.029 767 187 762.971 187 758V758C187 753.029 191.029 749 196 749Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M293 749H359C363.971 749 368 753.029 368 758V758C368 762.971 363.971 767 359 767H293C288.029 767 284 762.971 284 758V758C284 753.029 288.029 749 293 749Z"/>
+    <path fill="url(#logo-pill)" opacity=".92" d="M414 749H463C467.971 749 472 753.029 472 758V758C472 762.971 467.971 767 463 767H414C409.029 767 405 762.971 405 758V758C405 753.029 409.029 749 414 749Z"/>
+    <path fill="#D5E7FF" opacity=".42" d="M199 497C234 460 284 434 343 437C362 438 368 450 351 455C300 467 255 490 221 522C208 535 190 519 199 497Z"/>
+    <path fill="#E9F6FF" opacity=".74" d="M205 495C225 474 249 460 276 456C294 453 305 465 290 478C267 491 244 508 223 527C208 538 192 520 205 495Z"/>
   </g>
 
-  <text class="mono name" x="136" y="100">mssql-readonly-mcp</text>
-  <text class="lead" x="136" y="154">An MCP server that lets an AI assistant</text>
-  <text class="lead" x="136" y="198">read one on-premises SQL Server database.</text>
+  <text class="mono name" x="232" y="100">mssql-readonly-mcp</text>
+  <text class="lead" x="232" y="154">An MCP server that lets an AI assistant</text>
+  <text class="lead" x="232" y="198">read one on-premises SQL Server database.</text>
 </svg>

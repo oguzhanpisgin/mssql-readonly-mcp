@@ -34,8 +34,11 @@ At v0.1.0 it lists 13 files: `packaging/mcpb/` `manifest.json`, `package-lock.js
 `src/MssqlReadOnlyMcp.Audit/` `AuditLog.cs`, `AuditWriteException.cs`; `src/MssqlReadOnlyMcp/` `Program.cs`,
 `ServerConfig.cs`, `ServerStartup.cs`; `tests/MssqlReadOnlyMcp.Audit.Tests/AuditSiblingTests.cs`;
 `tests/MssqlReadOnlyMcp.Gate.Tests/` `AuditSiblingProcessTests.cs`, `ServerConfigMessageTests.cs`,
-`ServerProcess.cs`; `tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.cs`. Any other file means the code
-differs from what this page describes.
+`ServerProcess.cs`; `tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.cs`. After v0.1.0 the bundle icon added
+two files under `packaging`: `packaging/mcpb/icon.png`, the image, and `packaging/build-release.ps1`, whose bundle step
+copies it into each bundle; it also added the `icon` line to `manifest.json`, already listed, and changed no file under
+`src/` or `tests/`. With it the command lists 15 files. Any other file means the code differs from what this page
+describes.
 
 The attack test runs of this page were not repeated on that later code, and the scans listed here were not re-run on
 it, except CodeQL, which runs on every push to `main` and every pull request, and gitleaks, which on 2026-11-13,

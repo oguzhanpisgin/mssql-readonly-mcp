@@ -46,7 +46,7 @@ Job `release`, tag runs only (the one job with write permissions: `contents`, `i
    | `mssql-readonly-mcp-X.Y.Z-win-x64.zip` | One folder: the build, `LICENSE`, `README.txt` |
    | `mssql-readonly-mcp-X.Y.Z-linux-x64.tar.gz` | The same for Linux x64 |
    | `mssql-readonly-mcp-X.Y.Z-osx-arm64.tar.gz` | The same for macOS on Apple silicon |
-   | `mssql-readonly-mcp-X.Y.Z-<rid>.mcpb` | MCPB bundle per platform: `manifest.json`, `LICENSE`, the build under `server/` |
+   | `mssql-readonly-mcp-X.Y.Z-<rid>.mcpb` | MCPB bundle per platform: `manifest.json`, `icon.png`, `LICENSE`, the build under `server/` |
    | `SHA256SUMS` | SHA-256 of the six files above |
 
 The workflow never publishes a release.

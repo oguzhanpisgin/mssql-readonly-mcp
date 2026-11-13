@@ -15,7 +15,8 @@ builds the archives runs no npm code:
 
   Bundle (-BundleFrom <publish folder> -McpbTools <folder>): runs no dotnet; packs an existing publish folder into
       mssql-readonly-mcp-<version>-<rid>.mcpb
-    with manifest.json (from packaging/mcpb/manifest.json), LICENSE and the build under server/.
+    with manifest.json (from packaging/mcpb/manifest.json), icon.png (packaging/mcpb/icon.png), LICENSE and the
+    build under server/.
 
 Run it on Linux or macOS for the linux-x64 and osx-arm64 files: on Windows, tar and the MCPB CLI do not store the
 executable bit.
@@ -121,7 +122,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Archive') {
     Write-Host "archive: $archive"
 }
 else {
-    # 3. MCPB bundle: manifest.json at the root, the build under server/. No dotnet runs here.
+    # 3. MCPB bundle: manifest.json and icon.png at the root, the build under server/. No dotnet runs here.
     $mcpbCli = Join-Path $McpbTools 'node_modules/@anthropic-ai/mcpb/dist/cli/cli.js'
     if (-not (Test-Path $mcpbCli)) { throw "The MCPB CLI is not installed in $McpbTools." }
     $BundleFrom = Resolve-FullPath $BundleFrom
@@ -132,6 +133,8 @@ else {
     Copy-Item $BundleFrom (Join-Path $bundleDir 'server') -Recurse
     Set-Executable (Join-Path $bundleDir "server/$exeName")
     Copy-Item (Join-Path $repoRoot 'LICENSE') $bundleDir
+    # The manifest's "icon" names this file; mcpb validate below fails if it is missing.
+    Copy-Item (Join-Path $PSScriptRoot 'mcpb/icon.png') $bundleDir
 
     $manifest = Get-Content -Raw (Join-Path $PSScriptRoot 'mcpb/manifest.json') | ConvertFrom-Json
     $manifest.version = $Version
