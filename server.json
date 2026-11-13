@@ -8,13 +8,13 @@
     "source": "github",
     "id": "1454652260"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.0/mssql-readonly-mcp-0.1.0-win-x64.mcpb",
-      "version": "0.1.0",
-      "fileSha256": "b33fc29e1c02c292dd6c82393f405516e39cfd69c76c75a12cf1493cf61607ef",
+      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.1/mssql-readonly-mcp-0.1.1-win-x64.mcpb",
+      "version": "0.1.1",
+      "fileSha256": "9b8c546eca0a058e10c2a3c0576887599dabcb524432efd768939c7ff3b2a08f",
       "transport": {
         "type": "stdio"
       },
@@ -36,9 +36,9 @@
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.0/mssql-readonly-mcp-0.1.0-linux-x64.mcpb",
-      "version": "0.1.0",
-      "fileSha256": "6e8ccf2cd2ee7d8bbdfcc464ecab38a89f7662539b77f5b47ecfde59329bfc05",
+      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.1/mssql-readonly-mcp-0.1.1-linux-x64.mcpb",
+      "version": "0.1.1",
+      "fileSha256": "2ba664e518887baaf1afc453809d9ae8d70586f47a7ac9c20feb281bf48305b9",
       "transport": {
         "type": "stdio"
       },
@@ -60,9 +60,9 @@
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.0/mssql-readonly-mcp-0.1.0-osx-arm64.mcpb",
-      "version": "0.1.0",
-      "fileSha256": "a084cad810efc7d94cdf80e7ae62beaaf7ff4aa3224ca9241be3fa91a94a0c7e",
+      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.1/mssql-readonly-mcp-0.1.1-osx-arm64.mcpb",
+      "version": "0.1.1",
+      "fileSha256": "f6b745ff76b92d0a3dea2efa387c7921215d283109f3327aa9fbcf32e83320eb",
       "transport": {
         "type": "stdio"
       },
