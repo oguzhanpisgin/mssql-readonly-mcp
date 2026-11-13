@@ -1,0 +1,86 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.oguzhanpisgin/mssql-readonly-mcp",
+  "title": "mssql-readonly-mcp",
+  "description": "Read-only MCP server for on-premises SQL Server: one plain SELECT, startup login check, audit log.",
+  "repository": {
+    "url": "https://github.com/oguzhanpisgin/mssql-readonly-mcp",
+    "source": "github",
+    "id": "1454652260"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.0/mssql-readonly-mcp-0.1.0-win-x64.mcpb",
+      "version": "0.1.0",
+      "fileSha256": "b33fc29e1c02c292dd6c82393f405516e39cfd69c76c75a12cf1493cf61607ef",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MSSQL_CONNECTION_STRING",
+          "description": "SQL Server connection string. Use a login that passes check-login (see the README, \"Create and check the read-only login\"). The server adds ApplicationIntent=ReadOnly and Application Name=mssql-readonly-mcp.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MSSQL_MCP_AUDIT_LOG",
+          "description": "Path of the audit file, created with its folder if missing. One server process writes a file at a time; on Windows a second process on the same path writes a sibling file (docs/audit-log.md).",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.0/mssql-readonly-mcp-0.1.0-linux-x64.mcpb",
+      "version": "0.1.0",
+      "fileSha256": "6e8ccf2cd2ee7d8bbdfcc464ecab38a89f7662539b77f5b47ecfde59329bfc05",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MSSQL_CONNECTION_STRING",
+          "description": "SQL Server connection string. Use a login that passes check-login (see the README, \"Create and check the read-only login\"). The server adds ApplicationIntent=ReadOnly and Application Name=mssql-readonly-mcp.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MSSQL_MCP_AUDIT_LOG",
+          "description": "Path of the audit file, created with its folder if missing. One server process writes a file at a time; on Windows a second process on the same path writes a sibling file (docs/audit-log.md).",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v0.1.0/mssql-readonly-mcp-0.1.0-osx-arm64.mcpb",
+      "version": "0.1.0",
+      "fileSha256": "a084cad810efc7d94cdf80e7ae62beaaf7ff4aa3224ca9241be3fa91a94a0c7e",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MSSQL_CONNECTION_STRING",
+          "description": "SQL Server connection string. Use a login that passes check-login (see the README, \"Create and check the read-only login\"). The server adds ApplicationIntent=ReadOnly and Application Name=mssql-readonly-mcp.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MSSQL_MCP_AUDIT_LOG",
+          "description": "Path of the audit file, created with its folder if missing. One server process writes a file at a time; on Windows a second process on the same path writes a sibling file (docs/audit-log.md).",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

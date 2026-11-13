@@ -1,7 +1,4 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/banner-dark.svg">
-  <img src="docs/img/banner-light.svg" width="100%" alt="mssql-readonly-mcp: an MCP server that lets an AI assistant read one on-premises SQL Server database.">
-</picture>
+<img src="docs/img/banner-dark.svg" width="100%" alt="mssql-readonly-mcp: an MCP server that lets an AI assistant read one on-premises SQL Server database.">
 
 [![CI](https://img.shields.io/github/actions/workflow/status/oguzhanpisgin/mssql-readonly-mcp/ci.yml?branch=main&label=CI)](https://github.com/oguzhanpisgin/mssql-readonly-mcp/actions/workflows/ci.yml) [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE) ![.NET 10](https://img.shields.io/badge/.NET-10-blue) [![tested on: SQL Server 2019 | 2022 | 2025](https://img.shields.io/badge/tested%20on-SQL%20Server%202019%20%7C%202022%20%7C%202025-blue)](#1-prerequisites)
 
@@ -16,10 +13,7 @@ Status: early release, actively maintained. Tested on SQL Server 2019, 2022 and 
 every change; what it promises, what it does not solve and how it was tested (["Building and testing"](docs/building-and-testing.md)) are written
 below.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/architecture-dark.svg">
-  <img src="docs/img/architecture-light.svg" width="100%" alt="Architecture: an AI assistant starts mssql-readonly-mcp as a local stdio process and sends it tool calls. Inside the server: a read-only gate that accepts only text that passes an allowlist for one plain SELECT; a login check at startup: the server will not start with a login that fails its permission check (exit code 3); a hash-chained audit log, written before a result goes back. The allowed SELECT runs on one on-premises SQL Server database in a transaction that is always rolled back. Only the AI vendor is outside your building: it receives the rows the assistant reads, with table and column names and SQL Server error text.">
-</picture>
+<img src="docs/img/architecture-dark.svg" width="100%" alt="Architecture: an AI assistant starts mssql-readonly-mcp as a local stdio process and sends it tool calls. Inside the server: a read-only gate that accepts only text that passes an allowlist for one plain SELECT; a login check at startup: the server will not start with a login that fails its permission check (exit code 3); a hash-chained audit log, written before a result goes back. The allowed SELECT runs on one on-premises SQL Server database in a transaction that is always rolled back. Only the AI vendor is outside your building: it receives the rows the assistant reads, with table and column names and SQL Server error text.">
 
 ## What it promises
 
@@ -57,10 +51,7 @@ How each promise is checked, and where. Test counts are kept in one place,
 | The audit chain | Format, chain, verification, flush and single writer; `verify-audit` exits 0 on a file the server wrote and 1 on a tampered copy | [MssqlReadOnlyMcp.Audit.Tests](tests/MssqlReadOnlyMcp.Audit.Tests), [StdioServerTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.cs); [docs/audit-log.md](docs/audit-log.md) |
 | Startup with 20,000 tables | A second database with 20,000 tables; the startup check must pass there within the default connection timeout (15 s) | [ErpScaleTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/ErpScaleTests.cs); measured times in [Building and testing](docs/building-and-testing.md) |
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/refused-query-dark.svg">
-  <img src="docs/img/refused-query-light.svg" width="100%" alt="Two run_query calls, step by step. A, DELETE FROM dbo.Orders: the read-only gate refuses it with NotSelect inside the server process, nothing is sent to SQL Server, an audit line is written, and the client gets an error and no data. B, a plain SELECT: a new connection opens, the text runs in a transaction that is always rolled back, rows come back up to the caps, an audit line is written, and the client gets the JSON result. If the audit line cannot be written, the call returns AuditUnavailable and no data, and for B the query has still run by then; an allowed call also fails with no data on a second result set or rows changed, unless a cap cut the first result set.">
-</picture>
+<img src="docs/img/refused-query-dark.svg" width="100%" alt="Two run_query calls, step by step. A, DELETE FROM dbo.Orders: the read-only gate refuses it with NotSelect inside the server process, nothing is sent to SQL Server, an audit line is written, and the client gets an error and no data. B, a plain SELECT: a new connection opens, the text runs in a transaction that is always rolled back, rows come back up to the caps, an audit line is written, and the client gets the JSON result. If the audit line cannot be written, the call returns AuditUnavailable and no data, and for B the query has still run by then; an allowed call also fails with no data on a second result set or rows changed, unless a cap cut the first result set.">
 
 ## What it does not solve
 
@@ -90,7 +81,7 @@ for Windows and PowerShell 7; Linux and macOS forms, building from source and wh
 
 ### 1. Prerequisites
 
-- A SQL Server the machine can reach. The integration tests passed on 2026-11-12 on three Linux container images:
+- A SQL Server the machine can reach. The integration tests passed on 2026-11-13 on three Linux container images:
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`, `2022-CU27-ubuntu-22.04` and
   `2025-CU9-GDR1-ubuntu-22.04`. Other versions and Windows installations were not tested. One of those tests is not
   stable (U-1R in [SECURITY.md](SECURITY.md#known-limits)).
@@ -388,6 +379,8 @@ button under the Security tab of <https://github.com/oguzhanpisgin/mssql-readonl
   3 days; this is an aim, not a guarantee, and it is for security reports only.
 - Fixes land in the latest release ([Releases](https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases));
   versions follow semantic versioning.
+- Listed in the official MCP registry as `io.github.oguzhanpisgin/mssql-readonly-mcp`, with the release's three
+  `.mcpb` bundles ([server.json](server.json)).
 - One maintainer today (GitHub account `oguzhanpisgin`). MIT licence, no warranty (see [LICENSE](LICENSE)): test
   against your own server before you rely on it.
 - Most of the code and the documentation were written with AI coding assistants, directed by the maintainer.

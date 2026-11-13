@@ -46,7 +46,7 @@ Job `release`, tag runs only (the one job with write permissions: `contents`, `i
    | `mssql-readonly-mcp-X.Y.Z-win-x64.zip` | One folder: the build, `LICENSE`, `README.txt` |
    | `mssql-readonly-mcp-X.Y.Z-linux-x64.tar.gz` | The same for Linux x64 |
    | `mssql-readonly-mcp-X.Y.Z-osx-arm64.tar.gz` | The same for macOS on Apple silicon |
-   | `mssql-readonly-mcp-X.Y.Z-<rid>.mcpb` | MCPB bundle per platform: `manifest.json`, `icon.png`, `LICENSE`, the build under `server/` |
+   | `mssql-readonly-mcp-X.Y.Z-<rid>.mcpb` | MCPB bundle per platform: `manifest.json`, `icon.png` (not in the v0.1.0 bundles), `LICENSE`, the build under `server/` |
    | `SHA256SUMS` | SHA-256 of the six files above |
 
 The workflow never publishes a release.
@@ -73,6 +73,13 @@ The workflow never publishes a release.
 5. **Read the draft** on the Releases page: seven assets (plus GitHub's own two source code archives), the notes,
    the tag.
 6. **Publish** the draft by hand on the Releases page.
+7. **Update the registry entry** by hand; the workflow does not touch the MCP registry. In `server.json` at the
+   repository root set `version` (at the top and in each of the three packages), the three bundle URLs (`identifier`)
+   and their three `fileSha256` values, copied from the published release's `SHA256SUMS`; commit it to `main`. Then
+   publish the entry with the registry's `mcp-publisher` (`mcp-publisher login github`, `mcp-publisher publish`,
+   `mcp-publisher logout`). The registry checks that each URL answers, not the hashes, and a published version
+   cannot be changed, so before publishing compare each hash with `SHA256SUMS` and re-read the entry's
+   `description` and the descriptions of its two environment variables against the README.
 
 If the `build` job stops at step 1, nothing was created. Fix the cause on `main`, delete the failed tag
 (`git push origin --delete vX.Y.Z`, `git tag -d vX.Y.Z`) and tag the fixed commit, or use the next version.
@@ -95,7 +102,8 @@ everyone except the maintainer, who can bypass it (needed for the recovery steps
   local build showed only the ad-hoc signature the .NET SDK writes; see "Not yet verified"); the bundles are not
   signed with `mcpb sign`.
 - No builds for other platforms (for example Linux arm64, macOS x64, Windows arm64).
-- No entry in the MCP registry or any other listing.
+- No publishing to the MCP registry or any other listing; the registry entry is published by hand after the release
+  (step 7).
 
 `.github/dependabot.yml` is configured to propose updates of the pinned MCPB CLI in `packaging/mcpb`. Dependabot
 does not edit the `overrides` there: a later fix in `tmp` or `zod`, and any update of the CLI, need the overrides

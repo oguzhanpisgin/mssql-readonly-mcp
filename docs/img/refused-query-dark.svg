@@ -33,7 +33,7 @@
     </marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1000" height="1214"/>
+  <rect class="bg" x="0" y="0" width="1000" height="1214" rx="12"/>
   <text class="h" x="20" y="34" style="font-size:20px">A refused and an allowed <tspan class="mono">run_query</tspan> call, step by step</text>
 
   <!-- 1: the call -->

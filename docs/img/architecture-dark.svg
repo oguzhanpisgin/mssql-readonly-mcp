@@ -32,7 +32,7 @@
     </marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1000" height="1016"/>
+  <rect class="bg" x="0" y="0" width="1000" height="1016" rx="12"/>
 
   <!-- Your building: everything except the AI vendor -->
   <path class="edge" d="M10 36 H580 V214 H990 V1004 H10 Z"/>

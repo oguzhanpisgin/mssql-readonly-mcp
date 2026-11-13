@@ -1,5 +1,6 @@
 name: Bug report
 description: The server, a command or a tool does not do what the README or docs/ say. Not for security problems.
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
@@ -16,7 +17,9 @@ body:
     id: commit
     attributes:
       label: Server commit or version
-      description: The commit you built from (`git rev-parse HEAD` in your clone).
+      description: >-
+        The release version you downloaded (for example 0.1.0, as in the file name), or the commit you built from
+        (`git rev-parse HEAD` in your clone).
     validations:
       required: true
   - type: input

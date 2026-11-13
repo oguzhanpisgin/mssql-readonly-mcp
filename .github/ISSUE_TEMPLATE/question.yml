@@ -1,5 +1,6 @@
 name: Question
 description: How to do something with the server, or whether it does something. Not for security problems.
+labels: ["question"]
 body:
   - type: markdown
     attributes:

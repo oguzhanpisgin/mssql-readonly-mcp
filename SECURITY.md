@@ -445,6 +445,11 @@ Limits of this measurement:
   all returned `ok` with the right rows; run 5 on `a38fd06` the same. In run 5, 0 of 3 to 4 idle pooled sessions
   survived a broken call, on `12706a1` as well.
 
+## Supported versions
+
+Fixes, security fixes included, land in the latest release
+([Releases](https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases)).
+
 ## Reporting a problem
 
 Report it privately through GitHub private vulnerability reporting: the "Report a vulnerability" button under the
