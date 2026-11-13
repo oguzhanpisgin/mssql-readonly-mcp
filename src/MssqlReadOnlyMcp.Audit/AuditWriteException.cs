@@ -14,5 +14,17 @@ public sealed class AuditWriteException : Exception
     {
     }
 
+    internal AuditWriteException(string message, bool lockHeld)
+        : base(message)
+    {
+        LockHeld = lockHeld;
+    }
+
+    /// <summary>
+    /// True only when the open failed because another handle holds the file's single-writer lock (see
+    /// <c>AuditLog.IsLockHeld</c>); every other failure, a file that does not verify included, leaves it false.
+    /// </summary>
+    internal bool LockHeld { get; }
+
     internal static string Describe(Exception ex) => $"{ex.GetType().Name} 0x{ex.HResult:X8}";
 }

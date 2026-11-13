@@ -7,7 +7,12 @@ sees at server level; the [README](../README.md) has the short start.
 
 All settings are environment variables (`src/MssqlReadOnlyMcp/ServerConfig.cs`). A value that is not a whole number
 or is out of range stops the start with exit code 2. A configuration error names the variable, never its value; an
-audit file error names the audit file by its file name (`Program.cs`, `AuditLog.cs`). The connection pooling
+audit file error names the audit file by its file name (`Program.cs`, `AuditLog.cs`). The connection string error
+says which case it is, from fixed texts that hold no part of the value: not set (`MSSQL_CONNECTION_STRING is
+required`), set but empty, a placeholder of the form `${...}` that the client did not fill in, or a value the SQL
+Server client library cannot parse, with the form it expects (keyword=value pairs separated by semicolons) and a
+pointer to [README step 2](../README.md#2-create-and-check-the-read-only-login) (`ServerConfig.cs`;
+`ServerConfigMessageTests.cs`, in the Gate tests). The connection pooling
 settings are left to the client library's defaults and the connection string; when a call that its time limit or a
 client cancel reached comes to close its connection and that connection is not already closed, the server clears
 the pool ([Commands and exit codes](#commands-and-exit-codes); SECURITY.md, "Known limits", "Idle sessions stay
@@ -16,7 +21,7 @@ open").
 | Variable | Default | Range | Meaning |
 | --- | --- | --- | --- |
 | `MSSQL_CONNECTION_STRING` | none, required | | SQL Server connection string. The server adds `ApplicationIntent=ReadOnly` and `Application Name=mssql-readonly-mcp`. |
-| `MSSQL_MCP_AUDIT_LOG` | none, required for the server | | Path of the audit file. Created with its folder if missing. Not needed by `check-login`. |
+| `MSSQL_MCP_AUDIT_LOG` | none, required for the server | | Path of the audit file. Created with its folder if missing; a path ending in a folder separator stops the start with exit 2. On Windows, when another process holds it, the server writes a sibling in the same folder instead (`audit.2.jsonl` for `audit.jsonl`, up to `audit.8.jsonl`) without verifying the held file, so the record of one path can be several files; on Linux the code is present but not yet run, and its first run will be in CI; on other platforms the second server exits 2 ([The audit log](audit-log.md#several-server-processes-on-one-audit-path)). Do not configure a name ending in `.<number>` before the extension, such as `audit.2.jsonl`: it is also sibling 2 of `audit.jsonl` in the same folder, so two configurations can write one file, one at a time. Not needed by `check-login`. |
 | `MSSQL_MCP_MAX_ROWS` | 200 | 1 to 5000 | Most rows `run_query` returns. |
 | `MSSQL_MCP_MAX_CHARS` | 40000 | 1000 to 45000 | Most characters in one tool result. Claude Code saves a text result above 50,000 characters to a file instead of showing it, so the ceiling stays below that. |
 | `MSSQL_MCP_TIMEOUT_SECONDS` | 30 | 1 to 300 | Time limit of every call, counted from its start: it covers opening the connection, the session settings and the query with its reading, and is also the command timeout of every command, the startup check included. A call the limit stops is answered and audited as `Timeout`, unless the client cancelled it first. A call that has not ended at its cutoff, 0.5 s after its limit, is audited as `Timeout` then and answered with no data (`Cancelled`, with no answer, if the client cancelled it first); its clean-up (closing the reader, rolling back, closing the connection) counts, so this holds also for a call that had finished reading before the limit. A truncated result whose reader close cannot finish (a frozen or very slow link) is answered `ok` with the rows read before the cut at about the limit, inside the limit plus 0.5 s, because the client library gives that close up at its command timeout (as the fold of U-1 read the client library's code); a close that ended later would give `Timeout` with no data. A client cancel moves the cutoff to 0.5 s after the cancel if that is earlier than 0.5 s after the limit, and the call is then audited as `Cancelled`. A call that ends before its cutoff keeps its own outcome, so an `ok` answer with data can arrive up to 0.5 s after the limit, or later when the answer itself is delayed. Many calls frozen at once in the middle of a row delay the answers of every call, healthy ones too: in run 4, at a limit of 5 s with 60 or 120 such calls, the median answer came after 8.2 to 30.2 s (U-2). The clean-up of a call ended at its cutoff goes on at SQL Server after the answer. Connecting is also bounded by the connection string's `Connect Timeout` (default 15 s). When the answer leaves, what SQL Server may still be doing then, and calls after a `Timeout`: ["Commands and exit codes"](#commands-and-exit-codes). With 10,000 views and a 1,024-column table in the database and a limit of 1 s, the server stopped at startup on SQL Server 2019, 2022 and 2025 (`SqlException` number -2 from the startup check; [Security testing](security-testing.md), T-4); in run 4 on SQL Server 2022 with the 10,000 views and a limit of 1 s, 1 of 3 starts failed and two took 1.24 and 1.29 s. |
@@ -28,7 +33,7 @@ open").
 
 | Command | What it does |
 | --- | --- |
-| (no argument) | Runs the stdio MCP server. Opens and verifies the audit file, runs the login check, writes a `startup` audit line, then serves. |
+| (no argument) | Runs the stdio MCP server. Opens and verifies the audit file (on Windows, a sibling of it when another process holds it; Linux: code present but not yet run, first run will be in CI; elsewhere it exits 2), runs the login check, writes a `startup` audit line, then serves. |
 | `check-login` | Runs the login check only and prints the result. Needs `MSSQL_CONNECTION_STRING`. |
 | `verify-audit <path>` | Verifies an audit file and prints the result. Needs no variable. |
 
@@ -36,7 +41,7 @@ open").
 | --- | --- |
 | 0 | Success, including a normal server shutdown at end of input or Ctrl+C. |
 | 1 | `verify-audit`: the file does not verify or cannot be read. |
-| 2 | Configuration error (including a connection string the SQL Server client library rejects), audit file cannot be opened or does not verify, startup audit line not written, or wrong usage. |
+| 2 | Configuration error (including a connection string the SQL Server client library rejects), audit file cannot be opened or does not verify, all 8 audit files of the path held by other processes (Windows; Linux: code present but not yet run, first run will be in CI) or the one audit file held (other platforms), startup audit line not written, or wrong usage. |
 | 3 | The login holds a permission outside the allowed set (see ["What `check-login` refuses"](login-check.md)). |
 | 4 | SQL Server unreachable, or the check query failed (for example a wrong password). |
 | 5 | An unexpected internal error. The stderr line names only the exception type. No test produces this code. |
@@ -44,8 +49,10 @@ open").
 
 Where output goes (`Program.cs`): `check-login` writes its result to stdout, the pass line or, with exit 3, the
 header line and one line per finding; `verify-audit` writes its result to stdout with exit 0 and 1. Every other
-failure, the server's own exit 3 included, is one line on stderr. The running server writes only MCP messages to
-stdout, and to stderr one line per call, never the SQL text (`ToolService.cs`); its shape, an example, and the
+failure, the server's own exit 3 included, is one line on stderr. A server that writes a sibling of the configured
+audit file (Windows; Linux: code present but not yet run, first run will be in CI) says so in one stderr line at start
+([The audit log](audit-log.md#several-server-processes-on-one-audit-path)). The running server writes only MCP
+messages to stdout, and to stderr one line per call, never the SQL text (`ToolService.cs`); its shape, an example, and the
 shape of the warning described below:
 
 ```text
@@ -61,7 +68,7 @@ For a connection string the client library rejects, the stderr line names only t
 `mssql-readonly-mcp: configuration error: the SQL Server client library rejected MSSQL_CONNECTION_STRING (ArgumentException).`
 (`StdioServerTests.cs`, `Connection_string_the_client_library_rejects_exits_2_with_one_line_from_the_type_name`).
 
-The startup refusal line shown in [README step 3](../README.md#3-check-the-login) says `1 finding` for one, and
+The startup refusal line shown in [README step 2](../README.md#2-create-and-check-the-read-only-login) says `1 finding` for one, and
 adds ` The startup audit line could not be written.` when that write failed too. In
 both texts (that line and the `check-login` output) a finding names at most ten objects, then ` and <N> more`
 (`PermissionCheck.cs`). A refusal lists rights outside the read-only set; a finding can be a right that only

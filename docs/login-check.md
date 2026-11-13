@@ -1,7 +1,7 @@
 # What `check-login` refuses
 
 This page covers what the startup login check refuses, what it allows and what it does not inspect; the
-[README](../README.md#3-check-the-login) shows how to run it.
+[README](../README.md#2-create-and-check-the-read-only-login) shows how to run it.
 
 The server runs the check once, when it starts (`src/MssqlReadOnlyMcp/Program.cs`, `ServerStartup.cs`); nothing
 checks again later. Rights granted afterwards to the login, to a role it is in or to `public` are not seen until

@@ -23,6 +23,12 @@ namespace MssqlReadOnlyMcp.Audit;
 /// crash shortly after the file is created can lose the file; .NET offers no call to flush the
 /// directory.</description></item>
 /// <item><description>Verifying a file that is being written can report a partial last line.</description></item>
+/// <item><description>On Windows, when another handle holds the configured file's lock,
+/// <see cref="OpenOrSibling(string, string, TimeProvider?)"/> writes a sibling file in the same folder instead (for
+/// <c>audit.jsonl</c>: <c>audit.2.jsonl</c> up to <c>audit.8.jsonl</c>), so the record of one configured path can be
+/// several files, each a chain of its own; a reader who checks only the configured file misses the others. A file
+/// whose lock another handle holds is not verified by this process at that start. On Linux the same code is present
+/// but not yet run; its first run will be in CI. On every other platform a held lock stays fatal.</description></item>
 /// </list>
 /// <para>
 /// Fail-closed: when a line cannot be written and flushed, <see cref="Append(AuditEntry)"/> throws
@@ -37,9 +43,32 @@ namespace MssqlReadOnlyMcp.Audit;
 /// (<see cref="FileShare.ReadWrite"/>), as <see cref="AuditVerifier.Verify(string)"/> does; a reader that allows
 /// only read sharing is refused while the log is open.
 /// </para>
+/// <para>
+/// Siblings: <see cref="OpenOrSibling(string, string, TimeProvider?)"/> opens the configured file and, only when its
+/// lock is held by another handle (recognised on Windows and Linux only, see <see cref="IsLockHeld"/>; elsewhere a
+/// held lock stays fatal), the siblings <c>&lt;name&gt;.2&lt;extension&gt;</c>, <c>&lt;name&gt;.3&lt;extension&gt;</c>, ...
+/// in the same folder, lowest number first, at most <see cref="MaxFilesPerPath"/> files in all. Each file this
+/// process locks has its own lock, its own chain from 64 zeros, and is verified whole before its first line. A file
+/// whose lock another handle holds is skipped without being verified by this process. Every other failure stays
+/// fatal: a file this process locks that does not verify (it is never skipped to reach the next number), a folder
+/// that cannot be written, or any open error other than a held lock.
+/// </para>
 /// </remarks>
 public sealed class AuditLog : IDisposable
 {
+    /// <summary>Most audit files one configured path can have: the configured file and its siblings 2 to 8.</summary>
+    public const int MaxFilesPerPath = 8;
+
+    /// <summary><c>ERROR_SHARING_VIOLATION</c> as an HRESULT: the Windows error when another handle holds the file without sharing.</summary>
+    internal const int WindowsSharingViolation = unchecked((int)0x80070020);
+
+    /// <summary>
+    /// <c>EWOULDBLOCK</c> (<c>EAGAIN</c>) on Linux: on Unix, .NET takes <c>flock(LOCK_EX | LOCK_NB)</c> for
+    /// <see cref="FileShare.None"/> and throws a plain <see cref="IOException"/> whose HResult is that raw errno when
+    /// another open file description holds the lock.
+    /// </summary>
+    internal const int LinuxWouldBlock = 11;
+
     private static readonly HashSet<string> Decisions = new(StringComparer.Ordinal) { "allowed", "refused", "error" };
 
     private readonly object _gate = new();
@@ -72,7 +101,28 @@ public sealed class AuditLog : IDisposable
         _time = time;
         _lastSequence = lastSequence;
         _lastHash = lastHash;
+        FilePath = fileName;
     }
+
+    /// <summary>The platforms whose "lock held" error <see cref="IsLockHeld"/> recognises.</summary>
+    internal enum LockPlatform
+    {
+        Windows,
+        Linux,
+        Other,
+    }
+
+    /// <summary>The platform this process runs on, as <see cref="IsLockHeld"/> sees it.</summary>
+    internal static LockPlatform CurrentPlatform =>
+        OperatingSystem.IsWindows() ? LockPlatform.Windows
+        : OperatingSystem.IsLinux() ? LockPlatform.Linux
+        : LockPlatform.Other;
+
+    /// <summary>
+    /// Full path of the file this log writes: the path given to <see cref="Open(string, string, TimeProvider?)"/>, or
+    /// the configured file or one of its siblings for <see cref="OpenOrSibling(string, string, TimeProvider?)"/>.
+    /// </summary>
+    public string FilePath { get; private set; }
 
     /// <summary><c>seq</c> of the last line in the file; 0 for an empty file.</summary>
     public long LastSequence
@@ -111,7 +161,85 @@ public sealed class AuditLog : IDisposable
     /// it, or it cannot be created or opened.
     /// </exception>
     public static AuditLog Open(string path, string sessionId, TimeProvider? time = null) =>
-        Open(path, sessionId, time, openData: null, AuditVerifier.MaxLineBytes);
+        Open(path, sessionId, time, openLock: null, openData: null, AuditVerifier.MaxLineBytes);
+
+    /// <summary>
+    /// Opens the configured audit file as <see cref="Open(string, string, TimeProvider?)"/> does; only when its lock
+    /// is held by another handle (recognised on Windows and Linux only, see <see cref="IsLockHeld"/>; elsewhere the
+    /// open fails), opens the first sibling whose lock is free instead (<see cref="SiblingPath"/>, numbers 2 to
+    /// <see cref="MaxFilesPerPath"/>, lowest first), without verifying the held files. <see cref="FilePath"/> tells
+    /// which file it writes.
+    /// </summary>
+    /// <param name="path">Path of the configured audit file.</param>
+    /// <param name="sessionId">Session id written into every line.</param>
+    /// <param name="time">Clock for the <c>ts</c> field; <see cref="TimeProvider.System"/> when null.</param>
+    /// <returns>The open log.</returns>
+    /// <exception cref="AuditWriteException">
+    /// A file this process locks does not verify (it is never skipped), a file cannot be created or opened for any
+    /// reason other than a held lock, the path ends in a folder separator, or all <see cref="MaxFilesPerPath"/> files
+    /// are held.
+    /// </exception>
+    public static AuditLog OpenOrSibling(string path, string sessionId, TimeProvider? time = null) =>
+        OpenOrSibling(path, sessionId, time, openLock: null, AuditVerifier.MaxLineBytes);
+
+    /// <summary>As <see cref="OpenOrSibling(string, string, TimeProvider?)"/>, with the lock-file test seam of <see cref="Open(string, string, TimeProvider?, Func{string, FileStream}?, Func{string, FileStream}?, int)"/>.</summary>
+    internal static AuditLog OpenOrSibling(
+        string path, string sessionId, TimeProvider? time, Func<string, FileStream>? openLock, int maxLineBytes)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        for (int number = 1; number <= MaxFilesPerPath; number++)
+        {
+            try
+            {
+                return Open(SiblingPath(path, number), sessionId, time, openLock, openData: null, maxLineBytes);
+            }
+            catch (AuditWriteException ex) when (ex.LockHeld)
+            {
+                // Held by another handle, so this process cannot open the file and does not verify it. That the holder
+                // is a server that verified the file and writes it is a premise, not a guarantee: it may still be
+                // verifying a bad file, or may not be a server at all. Try the next number.
+            }
+        }
+
+        throw new AuditWriteException(
+            $"Audit file {Path.GetFileName(path)} and its siblings {Path.GetFileName(SiblingPath(path, 2))} to " +
+            $"{Path.GetFileName(SiblingPath(path, MaxFilesPerPath))} are all locked by other writers; at most " +
+            $"{MaxFilesPerPath} server processes can write the audit files of one configured path.");
+    }
+
+    /// <summary>
+    /// The path of file <paramref name="number"/> of a configured audit path: 1 is the path itself; 2 and up insert
+    /// <c>.number</c> before the extension, in the same folder (<c>audit.jsonl</c>: <c>audit.2.jsonl</c>;
+    /// <c>audit</c>: <c>audit.2</c>).
+    /// </summary>
+    internal static string SiblingPath(string path, int number)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(number, 1);
+        if (number == 1)
+        {
+            return path;
+        }
+
+        string name = Path.GetFileName(path);
+        string extension = Path.GetExtension(name);
+        string stem = name[..^extension.Length];
+        return Path.Join(Path.GetDirectoryName(path), $"{stem}.{number.ToString(System.Globalization.CultureInfo.InvariantCulture)}{extension}");
+    }
+
+    /// <summary>
+    /// Whether <paramref name="ex"/>, thrown while opening the lock file with <see cref="FileShare.None"/>, means that
+    /// another handle holds that lock. Windows: a plain <see cref="IOException"/> with ERROR_SHARING_VIOLATION
+    /// (0x80070020). Linux: a plain <see cref="IOException"/> whose HResult is errno 11 (EWOULDBLOCK from
+    /// <c>flock</c>). Any other type, code or platform is not a held lock, so the open stays fatal (fail-closed).
+    /// </summary>
+    internal static bool IsLockHeld(IOException ex, LockPlatform platform) =>
+        ex.GetType() == typeof(IOException)
+        && platform switch
+        {
+            LockPlatform.Windows => ex.HResult == WindowsSharingViolation,
+            LockPlatform.Linux => ex.HResult == LinuxWouldBlock,
+            _ => false,
+        };
 
     /// <summary>
     /// As <see cref="Open(string, string, TimeProvider?)"/>, with test seams: <paramref name="openData"/> opens the
@@ -119,10 +247,28 @@ public sealed class AuditLog : IDisposable
     /// and <paramref name="maxLineBytes"/> is the longest line accepted when verifying and appending.
     /// </summary>
     internal static AuditLog Open(
-        string path, string sessionId, TimeProvider? time, Func<string, FileStream>? openData, int maxLineBytes)
+        string path, string sessionId, TimeProvider? time, Func<string, FileStream>? openData, int maxLineBytes) =>
+        Open(path, sessionId, time, openLock: null, openData, maxLineBytes);
+
+    /// <summary>
+    /// As <see cref="Open(string, string, TimeProvider?, Func{string, FileStream}?, int)"/>; <paramref name="openLock"/>
+    /// opens the lock file from its full path (null: the real <see cref="FileStream"/> with <see cref="FileShare.None"/>).
+    /// </summary>
+    internal static AuditLog Open(
+        string path,
+        string sessionId,
+        TimeProvider? time,
+        Func<string, FileStream>? openLock,
+        Func<string, FileStream>? openData,
+        int maxLineBytes)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentNullException.ThrowIfNull(sessionId);
+        if (Path.EndsInDirectorySeparator(path))
+        {
+            throw new AuditWriteException("The audit path ends in a folder separator; it must name a file, for example audit.jsonl.");
+        }
+
         string name = Path.GetFileName(path);
         FileStream? lockStream = null;
         FileStream? data = null;
@@ -135,10 +281,28 @@ public sealed class AuditLog : IDisposable
                 Directory.CreateDirectory(directory);
             }
 
+            string lockPath = fullPath + ".lock";
             try
             {
-                lockStream = new FileStream(
-                    fullPath + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, bufferSize: 0);
+                lockStream = openLock is null
+                    ? new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, bufferSize: 0)
+                    : openLock(lockPath);
+            }
+            catch (IOException ex) when (IsLockHeld(ex, CurrentPlatform))
+            {
+                throw new AuditWriteException(
+                    $"Audit file {name} is locked by another writer ({AuditWriteException.Describe(ex)}).", lockHeld: true);
+            }
+            catch (IOException ex)
+            {
+                throw new AuditWriteException(
+                    $"Audit lock file {name}.lock cannot be opened ({AuditWriteException.Describe(ex)}).");
+            }
+
+            // Only now, with this process holding the lock, is the log itself opened. A failure here, a sharing
+            // violation included (a process that did not take the lock has the file open), is fatal.
+            try
+            {
                 data = openData is null
                     ? new FileStream(fullPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, bufferSize: 0)
                     : openData(fullPath);
@@ -146,10 +310,11 @@ public sealed class AuditLog : IDisposable
             catch (IOException ex)
             {
                 throw new AuditWriteException(
-                    $"Audit file {name} is locked by another writer or cannot be opened ({AuditWriteException.Describe(ex)}).");
+                    $"Audit file {name} cannot be opened although its lock was taken ({AuditWriteException.Describe(ex)}).");
             }
 
             AuditLog log = OpenOnStream(data, lockStream, name, sessionId, time, maxLineBytes);
+            log.FilePath = fullPath;
             return log;
         }
         catch (AuditWriteException)

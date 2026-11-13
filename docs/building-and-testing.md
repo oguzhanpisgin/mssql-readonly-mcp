@@ -19,15 +19,16 @@ dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release
 - `MSSQL_TEST_IMAGE` selects the SQL Server container image, for example
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`. Without it the tests use
   `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04` (`SqlServerFixture.cs`).
-- Test counts at the time of writing, on `eededa6`: Gate 367, Audit 55, Integration 259 on each of the three
-  images named under ["Prerequisites"](../README.md#1-prerequisites). In the last run (2026-11-13, on Windows) all
-  passed except one integration test on the 2022 image (258 of 259). That test,
+- Test counts in the last full run (2026-11-13, on Windows, one run): Gate 387, Audit 86, Integration 259 on each
+  of the three images named under ["Prerequisites"](../README.md#1-prerequisites), all passed. In the full run
+  before it, on `eededa6` (then Gate 367, Audit 55, Integration 259), all passed except one integration test on the
+  2022 image (258 of 259). That test,
   `Truncated_result_whose_cancel_is_held_until_the_network_works_again_holds_its_locks_until_then_only`,
   is not stable: on the 2022 image, on Windows, it failed in 2 of 13 runs on `a38fd06` (outside the full suite) and in 2
   of 6 on `eededa6` (once in the full suite run, once in 5 runs outside the full suite), 4 of 19 together, while the
   test of the same case without the held cancel passed 10 of 10 runs outside the full suite; no failure message was
   captured. That it fails for the same reason as U-1R (the fix looks at the connection once, before the close) is
-  reasoned, not proven. It can fail in a CI run or a local run. See U-1R in [Security testing](security-testing.md).
+  reasoned, not proven. It is not fixed and can still fail in a CI run or a local run. See U-1R in [Security testing](security-testing.md).
 - `ErpScaleTests.cs` creates a second database with 20,000 tables and asserts that the startup check passes there
   within the default connection timeout (15 s); it writes the time to its output. Measured on 2026-11-12 on one
   machine, one run per version of a Debug build: 1.3 s on SQL Server 2022, 1.4 s on 2019 and 1.8 s on 2025 with no
@@ -49,8 +50,7 @@ dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release
 
 ## Sources of the setup steps
 
-An entry with no `type` is a local stdio server (README step 4). Source: <https://code.claude.com/docs/en/mcp>.
-
-The error number in step 3, the restart advice and exit code 2, the `$null` remark and "Pending approval" were seen
-in a first run on 2026-11-12 on Windows with Claude Code; they are not covered by a test.
-These are steps 3 and 4 of the [README](../README.md#five-minute-start).
+The error number of an untrusted certificate (README step 2), the restart advice and the `$null` remark
+([Installing](install.md#keep-the-connection-string-for-your-user)) were seen in a first run on 2026-11-12 on Windows
+with Claude Code; they are not covered by a test. The sources of each client's block, and what was run on
+2026-11-13, are in [Installing, "What was tested"](install.md#what-was-tested).

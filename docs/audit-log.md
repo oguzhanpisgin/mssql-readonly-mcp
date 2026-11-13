@@ -1,7 +1,7 @@
 # The audit log
 
 This page covers the audit file's format, what it leaves out, how to verify it, its limits and the requests that get
-no line; step 6 of the [README](../README.md#6-first-question) gives the `verify-audit` command and its exit codes.
+no line; step 4 of the [README](../README.md#4-first-question) gives the `verify-audit` command and its exit codes.
 
 One JSON object per line, UTF-8, ending in `\n` (`src/MssqlReadOnlyMcp.Audit/AuditFormat.cs`). The fields always
 appear in this order:
@@ -51,13 +51,17 @@ A `run_query` text the gate allowed and then refused for `max_rows` below 1 is r
 Verify a file:
 
 ```powershell
-dotnet $dll verify-audit C:/mcp-audit/claude-code.jsonl
+& $exe verify-audit "$HOME/mcp-audit/claude-code.jsonl"
 ```
+
+(`$exe` is the program's path from README step 1; for a build from source, `dotnet $dll`, see
+[Installing](install.md#from-source).)
 
 It prints `Audit file <name>: <N> lines verified.` and exits 0, or names the first bad line and a reason word
 (for example `HashMismatch`, `ChainBreak`, `SequenceGap`, `NotCanonical`, `PartialLine`) and exits 1. The server
-also verifies the whole file each time it starts, so start time grows with the file, and will not start on a file
-that fails.
+also verifies the whole file it opens each time it starts, so start time grows with the file, and will not start
+on a file that fails (a file whose lock another handle holds is not opened; see
+["Several server processes on one audit path"](#several-server-processes-on-one-audit-path)).
 
 **After a failed write.** A write that fails part-way (for example on a full disk) can leave bytes after the last
 newline. The log then refuses every later line too (`AuditLogTests.cs`, `Failed_append_throws_and_poisons`), and the
@@ -84,9 +88,86 @@ Limits, quoted from the `AuditLog` class documentation (`src/MssqlReadOnlyMcp.Au
 > - On Linux, flushing a newly created log file to disk does not persist its directory entry, so a crash shortly
 >   after the file is created can lose the file; .NET offers no call to flush the directory.
 > - Verifying a file that is being written can report a partial last line.
+> - On Windows, when another handle holds the configured file's lock, `OpenOrSibling` writes a sibling file in the
+>   same folder instead (for `audit.jsonl`: `audit.2.jsonl` up to `audit.8.jsonl`), so the record of one configured
+>   path can be several files, each a chain of its own; a reader who checks only the configured file misses the
+>   others. A file whose lock another handle holds is not verified by this process at that start. On Linux the same
+>   code is present but not yet run; its first run will be in CI. On every other platform a held lock stays fatal.
 
 The server has no command that copies the last hash elsewhere. To detect tail truncation or a rewrite, copy the
 `hash` of the last line to a place the server's user cannot write, on a schedule you choose.
+
+## Several server processes on one audit path
+
+Where this holds: on Windows, measured; on Linux the code is present but had not run when this was written (its
+first run is the CI workflow); on every other platform, macOS included, the second server exits 2 as before.
+
+On Windows, a server whose configured audit file is held by another process does not exit: it writes a sibling file
+in the same folder (`AuditLog.OpenOrSibling`, `Program.cs`). The sibling's name inserts a number before the
+extension: for `audit.jsonl` it is `audit.2.jsonl`, then `audit.3.jsonl`, and so on. The server takes the lowest
+number whose lock is free, at most 8 files in all (the configured file and numbers 2 to 8); with all 8 held it exits
+2 with `Audit file audit.jsonl and its siblings audit.2.jsonl to audit.8.jsonl are all locked by other writers;
+...`. A server that writes a sibling says so in one line on stderr at start, naming files by file name only:
+
+```text
+mssql-readonly-mcp: audit file audit.jsonl is locked by another process; this process writes audit.2.jsonl in the same folder.
+```
+
+Each file is a chain of its own: its own `.lock` companion, a first line whose `prev_hash` is 64 zeros, verified
+whole when it is opened and continued when it is opened again; `verify-audit` checks each file on its own, with no
+change. Only a held lock leads to a sibling. A file whose lock another handle holds is not verified by this process
+at that start: it is skipped, whatever its content. A file this process does lock and that does not verify,
+configured or sibling, stops the start with exit 2 as before, and a bad sibling is never skipped to reach the next
+number; so do a folder that cannot be created and every other error opening a file. "Held" is told apart from other
+errors by the error the operating system gives for the `.lock` file: on Windows the sharing violation (`IOException`
+with HResult `0x80070020`); on Linux the `flock` refusal (errno 11, `EWOULDBLOCK`). Any other error, and every other
+platform, macOS included, stays fatal (`AuditLog.IsLockHeld`).
+
+The consequences:
+
+- The record of one configuration can now be several files, and a reader who checks only the configured file
+  misses the others.
+- The skipped file is trusted, not checked. The process that holds its lock may still be verifying it and then
+  exit on a bad file, while this server has already started on a sibling (`AuditSiblingTests.cs`,
+  `Held_configured_file_that_does_not_verify_is_skipped_unverified_and_the_sibling_is_taken`, which shows this
+  documented limit, not a guarantee).
+- On Windows any open handle on `<audit file>.lock` counts as a holder, not only another server. A handle opened
+  only for reading, with any of four sharing modes (none; read; read and write; read, write and delete), was enough
+  on Windows 11 with .NET 10 on 2026-11-13: an open of the `.lock` file in the server's mode (read and write, no
+  sharing) then failed with the sharing violation (measured with a script outside the repository's tests, not with
+  the server itself). So anyone who can read the `.lock` file can
+  move the server to a sibling and keep a file from being verified at that start; no line is lost, but the record
+  is split.
+- Do not configure a path whose name ends in `.<number>` before the extension, such as `audit.2.jsonl`: it is also
+  sibling 2 of `audit.jsonl` in the same folder. The code then treats it as any other file: a server of either
+  configuration that gets its lock verifies it and continues its chain, so lines of both configurations (possibly
+  of two databases, and no line field tells them apart) end up in one file, one writer at a time; while one holds
+  it, the other's server moves on to its own next file (`audit.3.jsonl`, or `audit.2.2.jsonl`).
+
+The defence is to verify every file of the path and to restrict who can open files in the audit folder. For
+example:
+
+```powershell
+Get-ChildItem "$HOME/mcp-audit" -Filter 'claude-desktop*.jsonl' | ForEach-Object { & $exe verify-audit $_.FullName }
+```
+
+The filter can also match other files whose names start the same way; each line's `session` field tells which
+server start wrote it.
+
+Seen to start two processes: Claude Desktop, Microsoft Store build, on Windows 11 on 2026-11-13. It started the
+bundle's server twice with the same settings, one process for chat and one for its shared pool of Cowork and Code
+sessions, and before this change the second exited with `audit log error: Audit file audit.jsonl is locked by
+another writer or cannot be opened (IOException 0x80070020)`. The sibling behaviour itself was not yet measured in
+Claude Desktop.
+
+What was tested, on Windows only: in one process, a held configured file, the lowest free number, reopening a
+sibling, the bound of 8, a sibling and a configured file that do not verify, a held configured file that does not
+verify (skipped unverified, the limit above), lock errors other than "held", a log held without its lock, a folder
+that cannot be created, and 2, 8 and 9 writers started together (10 rounds each; `AuditSiblingTests.cs`); and two
+processes of the built server started together on one path, without SQL Server (`AuditSiblingProcessTests.cs`, in
+the Gate tests): each held a file of its own, exactly one wrote the stderr line, and both files verified. The CI
+workflow runs both test projects on Ubuntu, where the Linux `flock` code is the one checked; they had not run there
+when this was written. macOS was not tested.
 
 ## Requests with no audit line
 

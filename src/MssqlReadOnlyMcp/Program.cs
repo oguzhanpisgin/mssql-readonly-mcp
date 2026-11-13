@@ -109,12 +109,17 @@ static async Task<int> RunServerAsync()
     AuditLog audit;
     try
     {
-        audit = AuditLog.Open(config.AuditLogPath, Guid.NewGuid().ToString("N"));
+        audit = AuditLog.OpenOrSibling(config.AuditLogPath, Guid.NewGuid().ToString("N"));
     }
     catch (AuditWriteException exception)
     {
         Console.Error.WriteLine($"{ServerStartup.Prefix}audit log error: {exception.Message}");
         return ExitCodes.ConfigOrAudit;
+    }
+
+    if (ServerStartup.DescribeAuditFile(config.AuditLogPath, audit.FilePath) is { } siblingLine)
+    {
+        Console.Error.WriteLine(siblingLine);
     }
 
     using (audit)

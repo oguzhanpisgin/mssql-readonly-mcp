@@ -34,14 +34,14 @@
     "connection_string": {
       "type": "string",
       "title": "SQL Server connection string",
-      "description": "Becomes MSSQL_CONNECTION_STRING. Use a login that passes check-login (see the README, \"Create the read-only login\"). The server adds ApplicationIntent=ReadOnly and Application Name=mssql-readonly-mcp.",
+      "description": "Paste only this text, with your values: Server=<host>;Database=<database>;User ID=<login>;Password=<password>. Port, certificate and which login: docs/install.md on the project's GitHub page.",
       "required": true,
       "sensitive": true
     },
     "audit_log": {
       "type": "string",
       "title": "Audit file path",
-      "description": "Becomes MSSQL_MCP_AUDIT_LOG. Path of the audit file, created with its folder if missing. Each server process needs its own audit file.",
+      "description": "Type a full path in your home folder, for example C:\\Users\\<you>\\mcp-audit\\claude-desktop.jsonl or /Users/<you>/mcp-audit/claude-desktop.jsonl. Folder rights and details: docs/install.md on the project's GitHub page.",
       "required": true
     }
   }

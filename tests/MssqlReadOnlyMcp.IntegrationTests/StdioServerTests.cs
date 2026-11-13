@@ -282,10 +282,14 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
     }
 
     [Fact]
-    public async Task Second_server_on_the_same_audit_file_exits_2_with_one_stderr_line()
+    public async Task Second_server_on_the_same_audit_path_writes_a_sibling_file_and_both_files_verify()
     {
         var auditPath = fixture.NewAuditPath();
-        await using var first = await McpClient.CreateAsync(new StdioClientTransport(new StdioClientTransportOptions
+        var siblingPath = Path.Combine(
+            Path.GetDirectoryName(auditPath)!, Path.GetFileNameWithoutExtension(auditPath) + ".2" + Path.GetExtension(auditPath));
+        var firstStderr = new ConcurrentQueue<string>();
+        var secondStderr = new ConcurrentQueue<string>();
+        StdioClientTransport Transport(ConcurrentQueue<string> stderr) => new(new StdioClientTransportOptions
         {
             Name = "mssql-readonly-mcp",
             Command = "dotnet",
@@ -295,17 +299,41 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
                 [ServerConfig.ConnectionStringVariable] = fixture.ReaderConnectionString,
                 [ServerConfig.AuditLogVariable] = auditPath,
             },
-        }));
-        Assert.NotEmpty(await first.ListToolsAsync());
+            StandardErrorLines = stderr.Enqueue,
+        });
 
-        var second = await RunServerAsync([], fixture.ReaderConnectionString, auditPath);
+        await using (var first = await McpClient.CreateAsync(Transport(firstStderr)))
+        {
+            Assert.NotEmpty(await first.ListToolsAsync());
+            await using var second = await McpClient.CreateAsync(Transport(secondStderr));
+            Assert.NotEmpty(await second.ListToolsAsync());
+            var one = await first.CallToolAsync("run_query", new Dictionary<string, object?> { ["sql"] = "SELECT 1 AS one" });
+            var two = await second.CallToolAsync("run_query", new Dictionary<string, object?> { ["sql"] = "SELECT 2 AS two" });
+            Assert.NotEqual(true, one.IsError);
+            Assert.NotEqual(true, two.IsError);
+        }
 
-        Assert.Equal(2, second.ExitCode);
-        var line = Assert.Single(second.Stderr);
-        Assert.StartsWith("mssql-readonly-mcp: audit log error: Audit file ", line, StringComparison.Ordinal);
-        Assert.Contains("locked by another writer", line, StringComparison.Ordinal);
-        Assert.Empty(second.Stdout);
-        AssertNoSecrets(second, auditPath);
+        Assert.DoesNotContain(firstStderr, l => l.Contains("audit file", StringComparison.Ordinal));
+        Assert.Contains(
+            $"mssql-readonly-mcp: audit file {Path.GetFileName(auditPath)} is locked by another process; this process writes {Path.GetFileName(siblingPath)} in the same folder.",
+            secondStderr);
+
+        // Each file is a chain of its own: a startup line and the one call of its own server, nothing of the other's.
+        foreach (var (path, sql) in new[] { (auditPath, "SELECT 1 AS one"), (siblingPath, "SELECT 2 AS two") })
+        {
+            var result = AuditVerifier.Verify(path);
+            Assert.True(result.Ok, result.Message);
+            Assert.Equal(2, result.LinesChecked);
+            var text = TestText.ReadShared(path);
+            Assert.Contains(sql, text, StringComparison.Ordinal);
+            Assert.DoesNotContain(sql == "SELECT 1 AS one" ? "SELECT 2 AS two" : "SELECT 1 AS one", text, StringComparison.Ordinal);
+            TestText.AssertNoSecrets(fixture, text);
+        }
+
+        foreach (var line in firstStderr.Concat(secondStderr))
+        {
+            TestText.AssertNoSecrets(fixture, line);
+        }
     }
 
     [Fact]

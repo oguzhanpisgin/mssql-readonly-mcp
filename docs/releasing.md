@@ -53,7 +53,9 @@ The workflow never publishes a release.
 
 ## Steps
 
-1. **Write the release notes** in `docs/releases/vX.Y.Z.md` on `main`.
+1. **Write the release notes** in `docs/releases/vX.Y.Z.md` on `main`, and set the version in the download and
+   login blocks of the README (`$v = 'X.Y.Z'`) and of [Installing](install.md) (`v=X.Y.Z`): the blocks name the
+   release's files and the tag of the login script.
 2. **CI green on the commit that holds the notes.** `ci.yml` (build, unit tests, integration tests on three SQL
    Server versions) has passed on that commit.
 3. **Run the workflow by hand once** on `main` at that commit (Actions, `release`, "Run workflow"). Download the
@@ -94,7 +96,7 @@ file of the tagged commit. This ruleset is not set up yet.
 - No entry in the MCP registry or any other listing.
 
 `.github/dependabot.yml` is configured to propose updates of the pinned MCPB CLI in `packaging/mcpb`. Dependabot
-does not edit the `overrides` there: a later fix in `tmp` or `zod`, and any update of the CLI, needs the overrides
+does not edit the `overrides` there: a later fix in `tmp` or `zod`, and any update of the CLI, need the overrides
 checked by hand, because npm applies an override silently, even where the CLI asks for another version.
 
 ## Not yet verified
@@ -108,8 +110,11 @@ Checked only on a Windows machine with the .NET SDK installed; not yet shown:
 - Starting the Linux build on Linux and the macOS build on a Mac, including whether Gatekeeper starts a downloaded
   executable that is not notarized. The ad-hoc signature was checked on a build made on Windows only.
 - Starting a build on a machine with no .NET installed at all.
-- Installing a `.mcpb` bundle in Claude Desktop or any other MCPB host (MANIFEST.md says hosts add `.exe` on Windows
-  themselves; the manifest names `mssql-readonly-mcp.exe` in full, see `packaging/build-release.ps1`).
+- Installing a `.mcpb` bundle in any MCPB host other than the Microsoft Store build of Claude Desktop on Windows,
+  or on any other platform. On
+  Windows 11 on 2026-11-13 the win-x64 bundle was installed in the Microsoft Store build 5.11492.2.0 of Claude
+  Desktop; a tool call typed in its chat was not shown (MANIFEST.md says hosts add `.exe` on Windows themselves; the
+  manifest names `mssql-readonly-mcp.exe` in full, see `packaging/build-release.ps1`).
 - That Dependabot opens update pull requests for `packaging/mcpb`.
 
 ## How a user checks a download

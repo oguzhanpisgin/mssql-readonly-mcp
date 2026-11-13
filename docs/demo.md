@@ -165,7 +165,7 @@ output (a text search for it after the run).
 ## What this run does not show
 
 - It used `claude -p` with `--mcp-config` and `--strict-mcp-config`, so the approval of a project `.mcp.json` in an
-  interactive session ("Pending approval", README step 4) was not exercised, and neither was Claude Desktop.
+  interactive session ("Pending approval") was not exercised, and neither was Claude Desktop.
 - It did not read the price again after the refusal. "The price is unchanged" in the final answer is the assistant's
   own conclusion from the refusal.
 - It shows one model on one SQL Server version, with the seven calls this model made in this run.
@@ -236,8 +236,8 @@ GO
 The steps, with the README's commands except where the run differed (named at the end):
 
 1. A SQL Server 2022 the machine can reach. The run used the container image named above, with the test-server
-   settings of README step 3: `-C` with `sqlcmd` and `TrustServerCertificate=True` in the connection string.
-2. Build the server (README step 1).
+   settings of README step 2: `-C` with `sqlcmd` and `TrustServerCertificate=True` in the connection string.
+2. Build the server ([From source](install.md#from-source); the run predates the release archives).
 3. Save the script above as `demo-db.sql` (the file is not in the repository). Run it with `sqlcmd` as an
    administrator, the same way as the login script in README step 2.
 4. Create the login (README step 2) with `MCP_DATABASE` set to `DemoErp` and the `GRANT` lines replaced by:
@@ -249,9 +249,9 @@ The steps, with the README's commands except where the run differed (named at th
    GRANT SELECT ON OBJECT::[dbo].[Products] TO [$(MCP_LOGIN)];
    ```
 
-5. Run `check-login` (README step 3); it should print the pass line shown above.
-6. Register the server with Claude Code (README step 4). The run did not use a project `.mcp.json`: it passed a
-   file with an `mcpServers` entry of the same form, pointing at the run's build, to `claude -p --mcp-config`, with
+5. Run `check-login` (README step 2); it should print the pass line shown above.
+6. Register the server with Claude Code. The run did not use the README's `claude mcp add` line (README step 3): it
+   passed a file with an `mcpServers` entry, pointing at the run's build, to `claude -p --mcp-config`, with
    `--strict-mcp-config`,
    `--allowedTools mcp__mssql-readonly`, `--model claude-sonnet-5-5`,
    `--append-system-prompt "Answer in English only."`, `--no-session-persistence`, `--disable-slash-commands` and

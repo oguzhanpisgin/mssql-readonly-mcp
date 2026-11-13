@@ -47,6 +47,26 @@ internal sealed record ServerConfig(
     public const int MinLockTimeoutMs = 0;
     public const int LockTimeoutCeilingMs = 300000;
 
+    /// <summary>Where the README creates the read-only login and checks it; named by the connection string messages.</summary>
+    public const string LoginSection = "README step 2, \"Create and check the read-only login\"";
+
+    /// <summary>The variable is set to an empty or whitespace-only text.</summary>
+    public const string EmptyConnectionStringMessage =
+        $"{ConnectionStringVariable} is set but empty: enter the connection string of the read-only login in the " +
+        $"client's settings for this server ({LoginSection})";
+
+    /// <summary>The variable holds a text that starts with <c>${</c> and ends with <c>}</c>, as a client template does.</summary>
+    public const string PlaceholderConnectionStringMessage =
+        $"{ConnectionStringVariable} holds a placeholder of the form ${{...}}: the client did not fill it in. Enter the " +
+        "connection string in the client's settings for this server, or check that the client supports the setting, " +
+        "then start the server again";
+
+    /// <summary>The SQL Server client library cannot parse the variable's value.</summary>
+    public const string InvalidConnectionStringMessage =
+        $"{ConnectionStringVariable} is not a valid SQL Server connection string (the value is not shown): expected " +
+        "keyword=value pairs separated by semicolons, with keywords such as Server, Database, User ID and Password, " +
+        $"and nothing else around them. Check it against {LoginSection}";
+
     /// <summary>Reads and validates the configuration.</summary>
     /// <param name="read">Reads one environment variable.</param>
     /// <param name="requireAuditLog">Whether <c>MSSQL_MCP_AUDIT_LOG</c> is required.</param>
@@ -54,9 +74,22 @@ internal sealed record ServerConfig(
     public static ServerConfig Load(Func<string, string?> read, bool requireAuditLog)
     {
         var raw = read(ConnectionStringVariable);
-        if (string.IsNullOrWhiteSpace(raw))
+        if (raw is null)
         {
             throw new ConfigException($"{ConnectionStringVariable} is required");
+        }
+
+        // The three messages below are fixed texts: none of them holds any character of the value, which can be a
+        // password or a fragment of one.
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            throw new ConfigException(EmptyConnectionStringMessage);
+        }
+
+        var trimmed = raw.Trim();
+        if (trimmed.StartsWith("${", StringComparison.Ordinal) && trimmed.EndsWith('}'))
+        {
+            throw new ConfigException(PlaceholderConnectionStringMessage);
         }
 
         SqlConnectionStringBuilder builder;
@@ -67,7 +100,7 @@ internal sealed record ServerConfig(
         catch (Exception exception) when (exception is ArgumentException or FormatException or KeyNotFoundException or InvalidOperationException)
         {
             // The parser's message can quote parts of the string, so it is not passed on.
-            throw new ConfigException($"{ConnectionStringVariable} is not a valid SQL Server connection string");
+            throw new ConfigException(InvalidConnectionStringMessage);
         }
 
         builder.ApplicationIntent = ApplicationIntent.ReadOnly;

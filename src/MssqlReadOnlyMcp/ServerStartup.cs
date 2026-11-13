@@ -86,6 +86,22 @@ internal static class ServerStartup
     }
 
     /// <summary>
+    /// The stderr line written at start when the server writes a sibling of the configured audit file
+    /// (<see cref="AuditLog.OpenOrSibling(string, string, TimeProvider?)"/>), or null when it writes the configured file.
+    /// It names both files by file name only.
+    /// </summary>
+    public static string? DescribeAuditFile(string configuredPath, string writtenPath)
+    {
+        if (string.Equals(Path.GetFullPath(configuredPath), Path.GetFullPath(writtenPath), StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return $"{Prefix}audit file {Path.GetFileName(configuredPath)} is locked by another process; this process " +
+            $"writes {Path.GetFileName(writtenPath)} in the same folder.";
+    }
+
+    /// <summary>
     /// The exit code and the one stderr line for any exception raised while connecting or running the permission
     /// check. The line is built from the exception's type name (and, for a <see cref="SqlException"/>, its number,
     /// class and state), never from its message, which can quote the connection string.

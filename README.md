@@ -84,59 +84,79 @@ More limits are in [SECURITY.md](SECURITY.md).
 
 ## Five-minute start
 
+Four steps: download the program, create its read-only login and check it, connect your client, ask. The blocks are
+for Windows and PowerShell 7; Linux and macOS forms, building from source and what was tested are in
+[Installing](docs/install.md).
+
 ### 1. Prerequisites
 
-- A .NET 10 SDK, 10.0.400 or later; `global.json` (`rollForward: latestFeature`) accepts a later 10.0 band, not 11.x.
-- On Linux: the ICU libraries (for example the `libicu` package). The server turns globalization on because
-  Microsoft.Data.SqlClient needs it.
-- `sqlcmd`, to run the login script as a database administrator.
-- The commands below are PowerShell 7 (`Read-Host -MaskInput` needs 7.1 or later).
 - A SQL Server the machine can reach. The integration tests passed on 2026-11-12 on three Linux container images:
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`, `2022-CU27-ubuntu-22.04` and
   `2025-CU9-GDR1-ubuntu-22.04`. Other versions and Windows installations were not tested. One of those tests is not
   stable (U-1R in [SECURITY.md](SECURITY.md#known-limits)).
 - On SQL Server 2019 some allowed syntax is newer than the server; it fails there with an error and nothing runs
   (["Syntax newer than SQL Server 2019"](docs/sql-gate.md#syntax-newer-than-sql-server-2019)).
+- `sqlcmd`, to run the login script as a database administrator; Microsoft's page "Download and install the sqlcmd
+  utility" (<https://learn.microsoft.com/en-us/sql/tools/sqlcmd/sqlcmd-download-install>) lists where to get it.
+- PowerShell 7.1 or later (`Read-Host -MaskInput`).
+- No .NET SDK: each release archive includes the .NET runtime. Starting it on a machine with no .NET installed at
+  all has not been tested yet ([Releasing](docs/releasing.md#not-yet-verified)).
 
-Build it:
+Download the Windows archive of the release, check it against `SHA256SUMS` and unpack it to a folder `tools` in your
+profile folder (`$HOME\tools`). That folder should be writable only by the account that installs the program,
+because every client starts the executable in it: a folder created at the drive root, such as `C:\tools`, normally
+lets every signed-in user replace its files, a folder in your profile does not.
 
 ```powershell
-git clone https://github.com/oguzhanpisgin/mssql-readonly-mcp.git
-cd mssql-readonly-mcp
-dotnet build -c Release
-$dll = (Resolve-Path src/MssqlReadOnlyMcp/bin/Release/net10.0/mssql-readonly-mcp.dll).Path
+$v = '0.1.0'; $name = "mssql-readonly-mcp-$v-win-x64"
+$base = "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v$v"
+Invoke-WebRequest "$base/$name.zip" -OutFile "$name.zip"; Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
+if ((Get-FileHash "$name.zip").Hash -ne (Select-String -SimpleMatch "$name.zip" SHA256SUMS).Line.Split(' ')[0]) { throw 'SHA-256 does not match SHA256SUMS' }
+Expand-Archive "$name.zip" "$HOME\tools"; Rename-Item "$HOME\tools\$name" mssql-readonly-mcp
+$exe = "$HOME\tools\mssql-readonly-mcp\mssql-readonly-mcp.exe"
 ```
 
-The commands in this guide run from the repository root. The server is that DLL, started with `dotnet <path>` (on
-Windows the build also writes `mssql-readonly-mcp.exe` beside it); the PowerShell steps use `$dll` from the last
-line, so set it again in a new session. The JSON snippets cannot use a variable: they assume the clone is at
-`C:/tools/mssql-readonly-mcp` and audit files under `C:/mcp-audit`. If yours differ, change every such path below
-(the value of `$dll` is the DLL path to use).
+The program is `$HOME\tools\mssql-readonly-mcp\mssql-readonly-mcp.exe`; the next steps use `$v`, `$base`, `$exe` and
+`SHA256SUMS`: in a new session, set the three variables again in the folder that holds `SHA256SUMS`. The
+executable is not Authenticode-signed. The client blocks below assume this folder
+and audit files in a folder `mcp-audit` in your profile folder: `$HOME/...` in PowerShell commands,
+`C:/Users/<you>/tools/...` and `C:/Users/<you>/mcp-audit/...` in configuration files, with `C:/Users/<you>` replaced
+by the folder `$HOME` prints, written with forward slashes; if yours differ, change those paths. The audit folder
+should be readable and writable only by the account that runs the server: a folder created at the drive root, such
+as `C:\mcp-audit`, normally lets every signed-in user read and change its files, a folder in your profile does not.
 
-### 2. Create the read-only login
+### 2. Create and check the read-only login
 
-Open `scripts/create-readonly-login.sql`. Its `GRANT SELECT ON OBJECT::...` lines are examples (a GRANT on an
-object that does not exist stops the script): replace them with one line per table or view of yours the assistant
-may read. Then run it as an administrator. Passwords come from environment variables, never from the file or the
-command line. With Windows authentication (`-E`):
+This step is the product's safety step: the server reads with this login only, and will not start with a login
+that fails its permission check. Download the login script of the release and open it:
 
 ```powershell
-$env:MCP_LOGIN = 'mcp_reader'
-$env:MCP_DATABASE = 'ExampleDb'
+Invoke-WebRequest "https://raw.githubusercontent.com/oguzhanpisgin/mssql-readonly-mcp/v$v/scripts/create-readonly-login.sql" -OutFile create-readonly-login.sql
+notepad create-readonly-login.sql
+```
+
+Its `GRANT SELECT ON OBJECT::...` lines are examples (a GRANT on an object that does not exist stops the script):
+replace them with one line per table or view of yours the assistant may read, and save. Then create the login as an
+administrator (Windows authentication, `-E`) and check it, in one block. In the block, replace the example server
+`sql.example.local` (twice) and database `ExampleDb` (twice) with yours. The password is typed once, into a masked
+prompt, and stays in environment variables of this session, never in a file or on a command line:
+
+```powershell
+$env:MCP_LOGIN = 'mcp_reader'; $env:MCP_DATABASE = 'ExampleDb'
 $env:MCP_PASSWORD = Read-Host -MaskInput 'New password for mcp_reader'
-sqlcmd -S sql.example.local -E -b -i scripts/create-readonly-login.sql
+sqlcmd -S sql.example.local -E -b -i create-readonly-login.sql
+$env:MSSQL_CONNECTION_STRING = "Server=sql.example.local;Database=ExampleDb;User ID=mcp_reader;Password=$env:MCP_PASSWORD"
 Remove-Item Env:MCP_PASSWORD
+& $exe check-login
 ```
 
-With a SQL Server administrator login (as the test does), after the same `MCP_` lines:
+With a SQL Server administrator login instead of `-E`: [Installing](docs/install.md#a-sql-server-administrator-login).
+Keep this PowerShell window open: step 3 uses `MSSQL_CONNECTION_STRING` from it.
 
-```powershell
-$env:SQLCMDPASSWORD = Read-Host -MaskInput 'Password for the administrator login'
-sqlcmd -S sql.example.local -U admin_login -b -i scripts/create-readonly-login.sql
-Remove-Item Env:SQLCMDPASSWORD, Env:MCP_PASSWORD
-```
-
-Add `-C` only for a test server with a self-signed certificate (see step 3).
+Microsoft.Data.SqlClient encrypts the connection and checks the server certificate by default. An untrusted
+certificate shows as exit code 4 with `SqlException number -2146893019` (seen on Windows with a self-signed
+certificate). Install a trusted certificate, or, for a test server, add `TrustServerCertificate=True` to the
+connection string and `-C` to `sqlcmd` (sqlcmd 18), and accept that a machine in the middle is then not detected.
 
 The script prints `Created login mcp_reader.` and `Created user mcp_reader in database ExampleDb.`, then lists the
 permissions the user now holds and its role memberships (expected: none). It sets the login's default database to
@@ -144,22 +164,10 @@ permissions the user now holds and its role memberships (expected: none). It set
 It stops with an error if the user belongs to another login or is in any role. `StdioServerTests.cs`
 (`Setup_script_creates_a_login_that_passes_check_login_and_runs_twice`) runs this file unchanged in the test
 container with `sqlcmd` from a Linux shell, then `check-login` (exit 0), then the file a second time. The PowerShell
-lines above were not run by a test.
+block above was not run as a whole: its `check-login` line was run with a release build on 2026-11-13
+([Installing](docs/install.md#what-was-tested)).
 
 Do not add the login to `db_datareader`. See ["What `check-login` refuses"](docs/login-check.md).
-
-### 3. Check the login
-
-Microsoft.Data.SqlClient encrypts the connection and checks the server certificate by default. An untrusted
-certificate shows as exit code 4 with `SqlException number -2146893019` (seen on Windows with a self-signed
-certificate). Install a trusted certificate, or, for a test server, add `TrustServerCertificate=True` to the
-connection string (sqlcmd 18: `-C`) and accept that a machine in the middle is then not detected.
-
-```powershell
-$password = Read-Host -MaskInput 'Password for mcp_reader'
-$env:MSSQL_CONNECTION_STRING = "Server=sql.example.local;Database=ExampleDb;User ID=mcp_reader;Password=$password"
-dotnet $dll check-login
-```
 
 Exit code 0 and `Login mcp_reader on database ExampleDb: passed, no permission to change data was found.` means you
 can go on. Exit code 3 prints `Login mcp_reader on database ExampleDb: refused, <n> right(s) outside the read-only
@@ -174,94 +182,162 @@ mssql-readonly-mcp: refusing to start: the login holds rights beyond read-only a
 How findings are printed, what the pass line does not prove, and every exit code:
 ["Commands and exit codes"](docs/reference.md#commands-and-exit-codes).
 
-### 4. Register with Claude Code
+### 3. Connect your client
 
-Claude Code reads a project file `.mcp.json` and expands `${VAR}` from the environment it was started in. The
-secret stays in the environment, not in the file and not on a command line. (`claude mcp add --env NAME=value`
-would put the password on a command line; do not use it for the connection string.)
+Every client starts the program itself and passes it two variables: `MSSQL_CONNECTION_STRING` and
+`MSSQL_MCP_AUDIT_LOG`. Where the connection string is kept differs per client:
 
-Set the two variables for your user. These lines are for Windows; on Linux, `export` both variables in the shell
-that starts Claude Code, from a file only you can read.
+| Client | Where the connection string is kept | Tested by this project |
+| --- | --- | --- |
+| [Claude Desktop](#claude-desktop) | The operating system's credential store (the bundle marks it `sensitive`) | Installed in the Microsoft Store build; its server answered `tools/list`; a tool call typed in the chat window not shown |
+| [Claude Code](#claude-code) | Plain text, in Claude Code's own file in your home folder | Yes: listed as connected |
+| [Codex CLI and the ChatGPT desktop app](#codex-cli-and-the-chatgpt-desktop-app) | Nowhere: forwarded from the environment Codex starts in | The entry is listed; the forwarding is documented, not tested |
+| [VS Code with GitHub Copilot](#vs-code-with-github-copilot) | Asked when the server first starts, then kept by VS Code | Documented; the program was started with the block's command |
+| [Cursor](#cursor) | Nowhere: read from Cursor's environment | Documented; the program was started with the block's command |
+
+Dates, versions and sources: [Installing, "What was tested"](docs/install.md#what-was-tested).
+
+An audit file has one writer at a time, locked through a companion `<audit file>.lock` beside it (for example
+`claude-code.jsonl.lock`), which stays after the server exits. On Windows, a second server process started with the
+same audit file writes a sibling file instead (`claude-code.2.jsonl` beside `claude-code.jsonl`), each file with its
+own chain, and says so in one line on stderr; on Linux the same code path has not run yet. On macOS the second
+process exits 2 because the file is locked ([The audit log](docs/audit-log.md#several-server-processes-on-one-audit-path)).
+
+#### Claude Desktop
+
+In the PowerShell window of step 1, download the bundle (`.mcpb`) of the same release to your Downloads folder and
+check it:
 
 ```powershell
-$password = Read-Host -MaskInput 'Password for mcp_reader'
-[Environment]::SetEnvironmentVariable('MSSQL_CONNECTION_STRING', "Server=sql.example.local;Database=ExampleDb;User ID=mcp_reader;Password=$password", 'User')
-[Environment]::SetEnvironmentVariable('MSSQL_MCP_AUDIT_LOG', 'C:/mcp-audit/claude-code.jsonl', 'User')
+Invoke-WebRequest "$base/mssql-readonly-mcp-$v-win-x64.mcpb" -OutFile "$HOME\Downloads\mssql-readonly-mcp-$v-win-x64.mcpb"
+if ((Get-FileHash "$HOME\Downloads\mssql-readonly-mcp-$v-win-x64.mcpb").Hash -ne (Select-String -SimpleMatch "mssql-readonly-mcp-$v-win-x64.mcpb" SHA256SUMS).Line.Split(' ')[0]) { throw 'SHA-256 does not match SHA256SUMS' }
 ```
 
-A user variable reaches only processes started afterwards: quit and restart the application that launches Claude
-Code (the terminal application or Claude Desktop), not only a tab. Until then `claude mcp list` warns about missing
-environment variables and the server exits with code 2. Windows stores the variable in your registry hive
-(`HKCU\Environment`) in plain text, password included, readable by any process running as you. To remove it:
-`Remove-ItemProperty HKCU:\Environment -Name MSSQL_CONNECTION_STRING` (setting it to `$null` left an empty value).
+Open it in Claude Desktop:
 
-`.mcp.json` at the project root:
+```powershell
+claude-desktop.exe "$HOME\Downloads\mssql-readonly-mcp-$v-win-x64.mcpb"
+```
+
+This command, with the bundle's full path, opened the install page on Windows 11 with the Microsoft Store build
+5.11492.2.0 of Claude Desktop; Anthropic does not document it. If it does nothing or PowerShell does not recognise
+it, use the menu in the app instead: **Settings > Extensions > Advanced settings > Install Extension…**, and pick
+the file in your Downloads folder.
+
+The install page warns that the source is unsigned; install it. Then fill in the two fields and save them; if they
+do not appear after the install, open them with the configure button on the extension's page:
+
+- **SQL Server connection string**: `Server=<host>;Database=<database>;User ID=mcp_reader;Password=<password>`,
+  the form of step 2 with the password typed in. Paste only this text.
+- **Audit file path**: `C:\Users\<you>\mcp-audit\claude-desktop.jsonl` (step 1).
+
+The Store build tested started the server twice, so on Windows its record can be two files, `claude-desktop.jsonl`
+and `claude-desktop.2.jsonl` ([The audit log](docs/audit-log.md#several-server-processes-on-one-audit-path)).
+
+If the server does not start, open the log view on the extension's page: it names the configuration error without
+repeating the connection string. Other cases, such as extensions turned off by an organisation: [Installing](docs/install.md#claude-desktop).
+
+#### Claude Code
+
+In the PowerShell window of step 2, in the folder where you start `claude`:
+
+```powershell
+claude mcp add -e "MSSQL_CONNECTION_STRING=$env:MSSQL_CONNECTION_STRING" -e "MSSQL_MCP_AUDIT_LOG=$HOME/mcp-audit/claude-code.jsonl" --transport stdio mssql-readonly -- $exe
+claude mcp list
+```
+
+`claude mcp list` should show `mssql-readonly: ... - ✔ Connected`. The shell history keeps the variable's name,
+not the password; while `claude mcp add` runs, the password is on its command line, which other processes running
+as you can read; Claude Code stores the value in plain text in its own file `.claude.json` in your home folder, for
+this folder only (the default `local` scope), readable by any process running as you. A project `.mcp.json` with
+`${MSSQL_CONNECTION_STRING}` is not used here: with Claude Code 2.1.323 such a reference reached the server empty
+([Installing](docs/install.md#claude-code)).
+
+#### Codex CLI and the ChatGPT desktop app
+
+They share one configuration file, `~/.codex/config.toml` (`%USERPROFILE%\.codex\config.toml`). Add:
+
+```toml
+[mcp_servers.mssql-readonly]
+command = 'C:/Users/<you>/tools/mssql-readonly-mcp/mssql-readonly-mcp.exe'
+env_vars = ["MSSQL_CONNECTION_STRING"]
+env = { MSSQL_MCP_AUDIT_LOG = 'C:/Users/<you>/mcp-audit/codex.jsonl' }
+```
+
+`env_vars` forwards the variable from the environment Codex was started in, so the password is not in the file:
+start `codex` from the PowerShell window of step 2. (`codex mcp add` takes only `--env NAME=value`, which would
+store the value.) The ChatGPT desktop app is not started from that window; it sees the variable only if it is set
+for your user ([Installing](docs/install.md#keep-the-connection-string-for-your-user)).
+
+#### VS Code with GitHub Copilot
+
+`.vscode/mcp.json` in your workspace:
 
 ```json
 {
-  "mcpServers": {
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "mssql-connection-string",
+      "description": "SQL Server connection string of the read-only login",
+      "password": true
+    }
+  ],
+  "servers": {
     "mssql-readonly": {
-      "command": "dotnet",
-      "args": ["C:/tools/mssql-readonly-mcp/src/MssqlReadOnlyMcp/bin/Release/net10.0/mssql-readonly-mcp.dll"],
+      "type": "stdio",
+      "command": "C:/Users/<you>/tools/mssql-readonly-mcp/mssql-readonly-mcp.exe",
       "env": {
-        "MSSQL_CONNECTION_STRING": "${MSSQL_CONNECTION_STRING}",
-        "MSSQL_MCP_AUDIT_LOG": "${MSSQL_MCP_AUDIT_LOG}"
+        "MSSQL_CONNECTION_STRING": "${input:mssql-connection-string}",
+        "MSSQL_MCP_AUDIT_LOG": "C:/Users/<you>/mcp-audit/vscode.jsonl"
       }
     }
   }
 }
 ```
 
-A server from a project `.mcp.json` shows as "Pending approval" in `claude mcp list` until you start `claude` once
-in that folder and approve it; after that it is listed as connected. Where these steps come from:
-["Sources of the setup steps"](docs/building-and-testing.md#sources-of-the-setup-steps).
+VS Code asks for the connection string in a hidden input when the server first starts, and keeps it for later
+starts. VS Code's page marks this file as the format of its deprecated "Local harness" (removal planned for
+February 2027): [Installing](docs/install.md#vs-code-with-github-copilot).
 
-### 5. Register with Claude Desktop
+#### Cursor
 
-The hand-edited `claude_desktop_config.json` form is documented on the MCP project's page
-<https://modelcontextprotocol.io/docs/develop/connect-local-servers>, not on an Anthropic page. Anthropic's own
-pages steer local servers to MCP Bundles (`.mcpb`); this project does not ship a bundle.
-
-The file is `%APPDATA%\Claude\claude_desktop_config.json` on Windows,
-`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS. Open it from Settings > Developer >
-Edit Config. Paths must be absolute; backslashes are doubled in JSON.
+`.cursor/mcp.json` in your project (or `~/.cursor/mcp.json` for every project):
 
 ```json
 {
   "mcpServers": {
     "mssql-readonly": {
-      "command": "dotnet",
-      "args": ["C:\\tools\\mssql-readonly-mcp\\src\\MssqlReadOnlyMcp\\bin\\Release\\net10.0\\mssql-readonly-mcp.dll"],
+      "type": "stdio",
+      "command": "C:/Users/<you>/tools/mssql-readonly-mcp/mssql-readonly-mcp.exe",
       "env": {
-        "MSSQL_CONNECTION_STRING": "Server=sql.example.local;Database=ExampleDb;User ID=mcp_reader;Password=EXAMPLE-ONLY",
-        "MSSQL_MCP_AUDIT_LOG": "C:\\mcp-audit\\claude-desktop.jsonl"
+        "MSSQL_CONNECTION_STRING": "${env:MSSQL_CONNECTION_STRING}",
+        "MSSQL_MCP_AUDIT_LOG": "C:/Users/<you>/mcp-audit/cursor.jsonl"
       }
     }
   }
 }
 ```
 
-That page documents no `${VAR}` expansion for this file, so the password sits in it in plain text. Limit who can
-read the file. Quit Claude Desktop completely and start it again after editing. The server's stderr is in
-`%APPDATA%\Claude\logs\mcp-server-mssql-readonly.log`.
+Cursor reads `${env:MSSQL_CONNECTION_STRING}` from its own environment: quit Cursor and start it from the PowerShell
+window of step 2, or set the variable for your user
+([Installing](docs/install.md#keep-the-connection-string-for-your-user)).
 
-Each server process needs its own audit file. The file is locked by one writer at a time through a companion
-`<audit file>.lock` beside it (for example `claude-code.jsonl.lock`), which stays after the server exits; a second
-server on the same file exits with code 2.
-
-### 6. First question
+### 4. First question
 
 Ask: "Use the mssql-readonly tools. List the tables, describe the orders table, then show the ten most recent
 orders with their customer names."
 
-Then verify the audit file:
+Then verify the audit file of your client, and every sibling file beside it if there is one
+([The audit log](docs/audit-log.md#several-server-processes-on-one-audit-path)). The files of the blocks above are
+`claude-desktop`, `claude-code`, `codex`, `vscode` and `cursor`, each with `.jsonl`; replace `claude-code` with yours:
 
 ```powershell
-dotnet $dll verify-audit C:/mcp-audit/claude-code.jsonl
+Get-ChildItem "$HOME/mcp-audit" -Filter 'claude-code*.jsonl' | ForEach-Object { & $exe verify-audit $_.FullName }
 ```
 
-It prints `Audit file <name>: <N> lines verified.` and exits 0, or names the first bad line and a reason word and
-exits 1 (see ["The audit log"](docs/audit-log.md)).
+For each file it prints `Audit file <name>: <N> lines verified.` (exit code 0), or names the first bad line and a
+reason word (exit code 1) (see ["The audit log"](docs/audit-log.md)); no output means no file was found.
 
 One recorded Claude Code run against an invented database, with each tool call, a refused `UPDATE` and the audit
 lines, is in [docs/demo.md](docs/demo.md).
@@ -269,6 +345,8 @@ lines, is in [docs/demo.md](docs/demo.md).
 ## Documentation
 
 - [What it promises](docs/promises.md): the full text of each promise and the test files that check it.
+- [Installing](docs/install.md): Linux and macOS, each client in more detail, updating, building from source, and
+  what was tested.
 - [Reference](docs/reference.md): configuration, commands and exit codes, tools, result limits, error reasons.
 - [What SQL is allowed](docs/sql-gate.md): the syntax and function names the gate allows, and its other checks.
 - [What `check-login` refuses](docs/login-check.md): what the login check refuses, allows and does not inspect.
@@ -307,7 +385,7 @@ button under the Security tab of <https://github.com/oguzhanpisgin/mssql-readonl
 - Security reports: privately, through GitHub private vulnerability reporting (the "Report a vulnerability" button
   under the Security tab), as [SECURITY.md](SECURITY.md) "Reporting a problem" describes. We aim to answer within
   3 days; this is an aim, not a guarantee, and it is for security reports only.
-- Fixes land in the latest release (none is published yet: build from source as "Five-minute start" shows);
+- Fixes land in the latest release ([Releases](https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases));
   versions follow semantic versioning.
 - One maintainer today (GitHub account `oguzhanpisgin`). MIT licence, no warranty (see [LICENSE](LICENSE)): test
   against your own server before you rely on it.

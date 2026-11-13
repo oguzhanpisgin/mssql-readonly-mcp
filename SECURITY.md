@@ -19,7 +19,9 @@ system, the configuration and every database name) can be read, and is not count
 database (`docs/reference.md`, "What the reader sees at server level").
 
 Out of scope: a database administrator, anyone who can change the server's binaries or its configuration, and anyone
-who can write the audit file. They can do more than this server can stop.
+who can write the audit file. They can do more than this server can stop. A process that can only open the audit
+file's `.lock` file, even only for reading, is not on that list; what it can do is under "Audit limits" in
+["Known limits"](#known-limits).
 
 ## Two layers
 
@@ -106,6 +108,12 @@ Gate (`tests/MssqlReadOnlyMcp.Gate.Tests`, no database needed):
 - `LeftOpenConnectionsGuardTests`: the referenced client library is Microsoft.Data.SqlClient 7.1.1, the version
   whose internals the server's fix for U-1 reads (`docs/reference.md`, "Commands and exit codes"); every internal the
   fix needs is found; the network handle resolves on both the native and the managed network type.
+- `AuditSiblingProcessTests`: two processes of the built server, started together on one audit path without SQL
+  Server, each hold an audit file of their own; exactly one prints the sibling line on stderr, and both files verify.
+  The stderr line names the sibling by file name only. Run on Windows only.
+- `ServerConfigMessageTests`: an unset, an empty, an unfilled `${...}` placeholder and an unparsable connection string
+  each give their own fixed message; no character of a secret-looking value reaches the message; a valid value still
+  loads; the server and `check-login`, started as processes, print the message as one line and exit 2.
 
 Audit (`tests/MssqlReadOnlyMcp.Audit.Tests`, no database needed):
 
@@ -122,6 +130,18 @@ Audit (`tests/MssqlReadOnlyMcp.Audit.Tests`, no database needed):
   tests that start a PowerShell 7 child process: while the child holds the `.lock` file, opening the log fails; while
   this process has the log open, the child cannot take the lock (nor, on Windows, open the log for writing) but can
   read the log.
+- `AuditSiblingTests`: a writer whose configured file is held gets a sibling file (`audit.2.jsonl` for
+  `audit.jsonl`) with a chain of its own; no sibling while the configured file is free; the lowest free number first;
+  a reopened sibling verifies and continues its chain; with all 8 files held the open fails with a clear message; a
+  configured file or sibling whose lock this process gets and that does not verify is fatal, and no higher number is
+  tried; a configured file that does not verify and whose lock another handle holds is not verified at that start:
+  it is skipped, left unchanged, and the sibling is taken
+  (`Held_configured_file_that_does_not_verify_is_skipped_unverified_and_the_sibling_is_taken`, which shows this
+  documented limit, not a guarantee); lock errors other than "held", a log held without its lock and a folder that
+  cannot be created are fatal; the "held" code leads to a sibling on Windows
+  and Linux only; a real held lock raises the code recognised on the platform of the run; 2, 8 and 9 writers started
+  together in one process (10 rounds each) each get a file of their own that verifies with only their own lines, and
+  of 9 exactly one fails with the bound's message. Run on Windows only; the Linux code path runs first in CI.
 
 Integration (`tests/MssqlReadOnlyMcp.IntegrationTests`, a real SQL Server in a container; passed on 2026-11-12 on
 the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images; one test is not stable: U-1R under "Known limits"):
@@ -182,7 +202,9 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images; one test is not stable:
   finding widens reading is refused with the startup and `check-login` texts; the commands' exit codes; every failed
   call reaches the client with `isError` and its reason word first, once
   (`Every_failed_call_reaches_the_client_as_an_error_whose_text_starts_with_its_reason_word`); a connection string
-  the client library rejects; a second server on the same audit file; calls the SDK rejects are audited and logged,
+  the client library rejects; a second server on the same audit path writes a sibling file, and both files verify
+  (`Second_server_on_the_same_audit_path_writes_a_sibling_file_and_both_files_verify`, compiled but not yet run
+  against SQL Server); calls the SDK rejects are audited and logged,
   also when it cannot read their parameters
   (`Call_whose_parameters_the_sdk_cannot_read_is_audited_before_its_error_answer`);
   end of input exits 0, a call in flight at end of input holds the process until it ends and writes its audit line,
@@ -391,8 +413,15 @@ Limits of this measurement:
 - **Audit limits.** The chain shows edits, deletions and reordering inside the file. It does not show removal of
   the newest lines or a full rewrite, unless the last hash is copied somewhere the writer cannot write. The hash
   has no key. The SQL text, literals included, is stored in plain text. Timestamps come from the host clock. On
-  Linux the file lock is advisory, and a crash just after the file is created can lose it. The full text is in the
-  `AuditLog` class documentation and in `docs/audit-log.md`.
+  Linux the file lock is advisory, and a crash just after the file is created can lose it. One configured path can
+  be up to 8 files (the sibling files, on Windows; on Linux not yet run): a process that holds `<audit file>.lock`
+  moves the server's lines to a sibling file, and the held file is not verified at that start. On Windows any open
+  handle on the `.lock` file counts as a holder: a handle opened only for reading, with any of four sharing modes,
+  was enough on Windows 11 with .NET 10 on 2026-11-13 (an open in the server's mode, read and write with no sharing,
+  failed with the sharing violation; measured with a script outside the repository's tests, not with the server
+  itself). So anyone who can read the `.lock` file can split the record and keep a file from being verified at that
+  start; no line is lost. Verify every file of the path, and restrict who can open files in the audit folder. The
+  full text is in the `AuditLog` class documentation and in `docs/audit-log.md`.
 - **Data leaves the building.** Rows, table and column names, and SQL Server error text (for classes 11 to 16,
   under any reason, the server's message, which can name objects or quote a value) go to the AI vendor. Read-only
   does not change that. A login that fails after start (for example, the reader's password was changed) is answered
