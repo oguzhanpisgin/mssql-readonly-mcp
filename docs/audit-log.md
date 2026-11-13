@@ -19,15 +19,20 @@ appear in this order:
 | `tables` | For `run_query`, the table and view names the SQL refers to, as written. For `describe_table`, the resolved `schema.name` when the lookup succeeded, empty when the argument itself was refused (missing, too long, or with a hidden character), otherwise the name as written. Empty for `list_tables`. |
 | `rows` | Rows or items returned, or null when no data was returned. |
 | `truncated` | Whether a cap cut the result. |
-| `duration_ms` | Time the call took. |
+| `duration_ms` | Time from the start of the call to its answer. For a call ended as `Timeout` or `Cancelled` at its cutoff, the time to that cutoff (a cancelled request gets no answer), not the time SQL Server worked on the call ([Commands and exit codes](reference.md#commands-and-exit-codes)). |
 | `result_sha256` | SHA-256 of the text returned to the client, or null. |
 | `prev_hash` | `hash` of the previous line; 64 zeros on the first line. |
 | `hash` | SHA-256 of this line written without its `hash` field. |
 
 The line is written after the SQL has run and flushed to disk before the result goes back to the client
 (`AuditTests.cs`, `Audit_failure_returns_an_error_and_no_row_data`: the call opened its connection before its line
-failed). The SQL text is stored in plain text, literals included. The connection string and passwords are never
-written.
+failed). A call that has not ended at its cutoff, 0.5 s after its time limit or 0.5 s after a client cancel,
+whichever comes first, gets its `Timeout` or `Cancelled` line then, while its clean-up may still run at SQL Server;
+that clean-up writes no second line ([Commands and exit codes](reference.md#commands-and-exit-codes)). Many calls
+frozen at once in the middle of a row delay the answers of every call, healthy ones too: in run 4, at a limit of
+5 s with 60 or 120 such calls, the median answer came after 8.2 to 30.2 s (U-2 in
+[Security testing](security-testing.md)).
+The SQL text is stored in plain text, literals included. The connection string and passwords are never written.
 
 `sql` and `sql_sha256` are the authoritative record of what was asked; `tables` is a reading aid. It lists names as
 written, and SQL Server may resolve a differently spelled name to the same object (measured for U+200D and U+FEFF,
@@ -91,8 +96,8 @@ its answer, also when the SDK cannot read its parameters (a lone surrogate such 
 can be read and `unknown` otherwise, and `sql` null; the client gets the SDK's JSON-RPC error
 `-32603 "An error occurred."` (`src/MssqlReadOnlyMcp/CallToolAuditFilter.cs`, `WrapMessages`; `StdioServerTests.cs`,
 `Call_whose_parameters_the_sdk_cannot_read_is_audited_before_its_error_answer`). As for every call, when the line
-cannot be written the call fails with no data, and a call still running when the server exits with code 6 may have
-no audit line ([Commands and exit codes](reference.md#commands-and-exit-codes)).
+cannot be written the call fails with no data, and a call not yet answered when the server exits with code 6 may
+have no audit line ([Commands and exit codes](reference.md#commands-and-exit-codes)).
 
 Requests the SDK or its stdio transport rejects or drops before that point run no tool and get no audit line.
 That is expected and not a finding; a tool that ran without an audit line is one (README, "Try to break it").

@@ -40,8 +40,9 @@ Each promise names the test files that check it. Test files are under `tests/`.
 ## Audit line before data
 
 - **No call returns data before its hash-chained audit line is written.** The line is appended after the
-  SQL has run: if it cannot be written, the query has still run and the call returns an error and no data. For
-  calls still running at an exit 6, see ["Commands and exit codes"](reference.md#commands-and-exit-codes). Proven
+  SQL has run, or, for a call ended as `Timeout` or `Cancelled` at its cutoff, while its clean-up may still run
+  at SQL Server: if it cannot be written, the query has still run and the call returns an error and no data. For
+  calls not yet answered at an exit 6, see ["Commands and exit codes"](reference.md#commands-and-exit-codes). Proven
   by `MssqlReadOnlyMcp.IntegrationTests/AuditTests.cs` (one line per call plus one startup line; no data when the
   audit file fails), `StdioServerTests.cs`, and the `MssqlReadOnlyMcp.Audit.Tests` project (format, chain,
   verification, flush, single writer).
@@ -51,11 +52,20 @@ Each promise names the test files that check it. Test files are under `tests/`.
 - **Results are capped by rows, characters and time.** Proven by `MssqlReadOnlyMcp.IntegrationTests/CapsTests.cs`
   (row cap, character cap, cell cut, time limit, lock timeout) and `CallLimitTests.cs` (time limit per call, also
   when rows arrive slowly; a row that cannot fit the character cap is not held whole in memory, but the cells read
-  and the rest of the row still cross the network). The steps that have no time limit of their own are listed under
-  `MSSQL_MCP_TIMEOUT_SECONDS` in ["Configuration"](reference.md#configuration). The time limit ends the reading,
-  and a call it stops returns `Timeout` and no data; it does not bound when the answer arrives. How far past the
-  limit calls ended, also on a stalled or slow established connection, is in
-  ["Commands and exit codes"](reference.md#commands-and-exit-codes).
+  and the rest of the row still cross the network), and `StdioServerTests.AnswerAtTheLimit.cs` (the answer at the
+  time limit on a frozen, throttled or held connection). The time limit ends the reading, and a call it stops
+  returns `Timeout` and no data. A call that has not ended 0.5 s after its limit, its clean-up included, is
+  answered as `Timeout` then, or audited as `Cancelled` with no answer if the client cancelled it first
+  (["Configuration"](reference.md#configuration)). The tests bound that answer at the limit plus 2.5 s at the client
+  and the audit line at the limit plus 1.5 s; the 0.5 s figure was measured by the attack tests only. In run 4 every
+  `Timeout` of a single call came at most 0.56 s past the limit (three engines, limits 2 to 120 s;
+  [Security testing](security-testing.md)). A call that ends
+  inside those 0.5 s keeps its own outcome and can return data after its limit (run 4: 23 rows at 5,135 ms at a
+  limit of 5 s); no `Timeout` or `Cancelled` answer or audit line carried data. Many calls frozen at once in the
+  middle of a row delay the answers of every call, healthy ones too: in run 4, at a limit of 5 s with 60 or 120
+  such calls, the median answer came after 8.2 to 30.2 s (U-2 in [Security testing](security-testing.md)).
+  It does not bound the work at SQL Server: the clean-up of such a call, with the session's read transaction and
+  locks, can outlast the answer (["Commands and exit codes"](reference.md#commands-and-exit-codes)).
 
 ## Lock timeout and deadlock priority
 
@@ -66,5 +76,7 @@ Each promise names the test files that check it. Test files are under `tests/`.
   The deadlock priority is proven by `ValueTypeTests.cs`
   (`Deadlock_victim_is_reported_as_DeadlockVictim_and_the_next_call_works`): against a session at the default
   priority, the reader is the victim, and the next call works. Limit: while a query runs under the default READ
-  COMMITTED level, its own shared locks can still make a writer wait, until the call ends; the time limit of the
-  call is not a hard bound (["Commands and exit codes"](reference.md#commands-and-exit-codes)).
+  COMMITTED level, its own shared locks can still make a writer wait, until the call ends; for a call ended as
+  `Timeout` or `Cancelled` at its cutoff, its locks and its read transaction stay until its abandoned clean-up
+  ends, which can be after the answer, and on a slow link a `Timeout` can leave them longer, with its session
+  (U-1R in [Security testing](security-testing.md); ["Commands and exit codes"](reference.md#commands-and-exit-codes)).

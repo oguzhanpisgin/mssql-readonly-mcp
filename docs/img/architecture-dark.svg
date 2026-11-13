@@ -164,7 +164,7 @@
     <path class="i i-ink" d="M54 868 V920 A24 8 0 0 0 102 920 V868 M54 894 A24 8 0 0 0 102 894"/>
     <text class="h" x="124" y="874">SQL Server</text>
     <text x="124" y="898">One on-premises database.</text>
-    <text x="124" y="922">Integration tests passed on 2019, 2022 and 2025.</text>
+    <text x="124" y="922">Integration tests run on 2019, 2022 and 2025.</text>
     <text x="124" y="946">Use the login from <tspan class="mono">create-readonly-login.sql</tspan>:</text>
     <text x="124" y="970">SELECT only on the tables and views you list</text>
   </g>

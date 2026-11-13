@@ -19,8 +19,15 @@ dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release
 - `MSSQL_TEST_IMAGE` selects the SQL Server container image, for example
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`. Without it the tests use
   `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04` (`SqlServerFixture.cs`).
-- Test counts at the time of writing: Gate 364, Audit 55, Integration 245 on each of the three images named under
-  ["Prerequisites"](../README.md#1-prerequisites).
+- Test counts at the time of writing, on `eededa6`: Gate 367, Audit 55, Integration 259 on each of the three
+  images named under ["Prerequisites"](../README.md#1-prerequisites). In the last run (2026-11-13, on Windows) all
+  passed except one integration test on the 2022 image (258 of 259). That test,
+  `Truncated_result_whose_cancel_is_held_until_the_network_works_again_holds_its_locks_until_then_only`,
+  is not stable: on the 2022 image, on Windows, it failed in 2 of 13 runs on `a38fd06` (outside the full suite) and in 2
+  of 6 on `eededa6` (once in the full suite run, once in 5 runs outside the full suite), 4 of 19 together, while the
+  test of the same case without the held cancel passed 10 of 10 runs outside the full suite; no failure message was
+  captured. That it fails for the same reason as U-1R (the fix looks at the connection once, before the close) is
+  reasoned, not proven. It can fail in a CI run or a local run. See U-1R in [Security testing](security-testing.md).
 - `ErpScaleTests.cs` creates a second database with 20,000 tables and asserts that the startup check passes there
   within the default connection timeout (15 s); it writes the time to its output. Measured on 2026-11-12 on one
   machine, one run per version of a Debug build: 1.3 s on SQL Server 2022, 1.4 s on 2019 and 1.8 s on 2025 with no

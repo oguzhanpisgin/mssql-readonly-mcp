@@ -10,9 +10,10 @@ inspects and those it does not); that it cannot read outside the connected datab
 back from a call before that call's audit line is written. Every `tools/call` request the MCP SDK passes to the
 server's message filters gets exactly one audit line before its answer, also when the SDK cannot read its
 parameters. Requests the SDK or its stdio transport rejects or drops before that point run no tool and have no line
-(`docs/audit-log.md`, "Requests with no audit line"). The line is appended after the SQL has run: when it
-cannot be written, the query has still run, and the call fails with no data. A call still running when the server
-exits with code 6 may have no audit line and returns no data.
+(`docs/audit-log.md`, "Requests with no audit line"). The line is appended after the SQL has run, or, for a call
+ended as `Timeout` or `Cancelled` at its cutoff, while its clean-up may still run at SQL Server: when it cannot
+be written, the query has still run, and the call fails with no data. A call not yet answered when the server exits
+with code 6 may have no audit line and returns no data.
 Server-level metadata that SQL Server shows every login through `public` (among them the host name, the operating
 system, the configuration and every database name) can be read, and is not counted as outside the connected
 database (`docs/reference.md`, "What the reader sees at server level").
@@ -102,6 +103,9 @@ Gate (`tests/MssqlReadOnlyMcp.Gate.Tests`, no database needed):
   version 18.0.140.0 or later (NuGet 180.140.0).
 - `TablesTests`, `LimitsTests` (file `TablesAndLimitsTests.cs`): the referenced-table list, deep nesting without a crash, the size ceiling, and that the
   gate never throws.
+- `LeftOpenConnectionsGuardTests`: the referenced client library is Microsoft.Data.SqlClient 7.1.1, the version
+  whose internals the server's fix for U-1 reads (`docs/reference.md`, "Commands and exit codes"); every internal the
+  fix needs is found; the network handle resolves on both the native and the managed network type.
 
 Audit (`tests/MssqlReadOnlyMcp.Audit.Tests`, no database needed):
 
@@ -120,7 +124,7 @@ Audit (`tests/MssqlReadOnlyMcp.Audit.Tests`, no database needed):
   read the log.
 
 Integration (`tests/MssqlReadOnlyMcp.IntegrationTests`, a real SQL Server in a container; passed on 2026-11-12 on
-the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
+the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images; one test is not stable: U-1R under "Known limits"):
 
 - `GateRefusalTests`: refused statements open no connection, create no command, and leave every table, the
   sequence, the object catalogue and the logins unchanged. A write sent past the gate on purpose is refused by
@@ -185,6 +189,23 @@ the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images):
   and a call stalled at the connection open ends at its time limit as `Timeout`, inside the drain window
   (`MSSQL_MCP_TIMEOUT_SECONDS` + 10 s); the login script; `sys.databases` visibility with and without
   `DENY VIEW ANY DATABASE`; no password in any result, stderr line or audit file.
+- `StdioServerTests` (file `StdioServerTests.AnswerAtTheLimit.cs`, over stdio and in process): a call on a frozen
+  or throttled connection, with its transaction start or rollback held, or a schema call on a frozen connection is
+  answered as `Timeout` with no rows within the limit plus 2.5 s at the client (audit `duration_ms` within the limit
+  plus 1.5 s; the 0.5 s figure was measured by the attack tests only), and its clean-up ends after the release with
+  no second audit line; a held transaction start sends no
+  query; with the rollback held, the reader's transaction stays open after the answer; a client cancel on a frozen
+  connection is `Cancelled` within 2.5 s of the cancel; with more calls held in a synchronous step than processors,
+  each of them and the next call that reaches its limit are answered within the same bound, and a quick call after
+  them succeeds; heavy rows on a healthy link answer `Timeout` three times and leave no request or open transaction
+  of the reader within 15 s; end of input exits 0 while a frozen connection is still held; a call waiting for a pool
+  slot held by an abandoned clean-up ends at its limit as `Timeout` or at `Connect Timeout` as `InternalError`.
+- `StdioServerTests` (file `StdioServerTests.LeftOpenSessions.cs`, the server as its own process over stdio):
+  after a truncated result whose reader close is frozen, with or without its cancel held, and after a `Timeout` on
+  a throttled link, no session, open transaction or lock of the call is left 2 s after the network works again, and a
+  next call, the exit at end of input and the audit file are clean (one call per case; attack test run 5 found the
+  throttled case not clean in every call, and the test with the held cancel is not stable: U-1R below); a live
+  connection uses a network type whose handle the fix resolves.
 
 ## Where the parser and the server read text differently
 
@@ -263,19 +284,93 @@ Limits of this measurement:
   spelled name to the same object; in a `run_query` text, full-width letters and some other characters were not
   measured (a `describe_table` name with a full-width letter: `docs/reference.md`, "Tools"). `sql` and
   `sql_sha256` are the authoritative record. A `TooLong` text and a refused name argument are not recorded.
-- **CPU, memory and tempdb use are limited by the time limit of the call, which is not a hard bound.** It counts
-  from the start of the call and covers opening the connection, the session settings, and the query and its
-  reading; each command also keeps it as its command timeout. When it passes, a synchronous read already under way
-  (part of an `xml` value, for example) finishes, then the command is cancelled, the reader closed and, for
-  `run_query`, the transaction rolled back; these steps and the transaction start are synchronous and the time
-  limit does not stop them. Measured: 0.1 to 0.3 s past
-  the limit for 30 slow rows on SQL Server 2022 when the limit was added; up to about 5 s past it on a healthy
-  connection in the attack test (8.2 to 8.5 s at a limit of 5 s on SQL Server 2025, 3 of 3 runs); on a frozen or
-  throttled established connection, 5 s past it, until the network was released (45 s at a limit of 5 s, 2 of 4
-  measurements), or 21 to 23 s past a limit of 2 s at 20 KB/s (`docs/reference.md`, "Commands and exit codes";
-  `docs/security-testing.md`, T-1 and T-2). A heavy join or sort can load the server until then.
-  The server does not limit how many calls run at once. The server-side answer is Resource Governor: put the login
-  in a workload group with its own limits (check that your SQL Server edition offers it).
+- **CPU, memory and tempdb use at SQL Server can outlast the answer of a call stopped by its time limit.** The
+  limit counts from the start of the call and covers opening the connection, the session settings, and the query
+  and its reading; each command also keeps it as its command timeout. A call that has not ended 0.5 s after the
+  limit, its clean-up included, is answered as `Timeout` with no data (`Cancelled`, with no answer, if the client
+  cancelled it first), and its clean-up (the cancel, the reader close, the rollback and the connection close) goes
+  on in the background; a client cancel moves the cutoff to 0.5 s after the cancel if that is earlier. A call that
+  ends before its cutoff keeps its own outcome: in run 4 one returned `ok` with 23 rows at 5,135 ms at a limit of
+  5 s, and no `Timeout` or `Cancelled` answer or audit line carried data (`docs/security-testing.md`, run 4).
+  Many calls frozen at once in the middle of a row delay the answers of every call, healthy ones too (U-2 in
+  `docs/security-testing.md`). Measured in run 4 at a limit of 5 s, once per engine and count (2022 at 60 calls twice):
+  with 60 or 120 such calls the median answer came after 8.2 to 29.8 s in parallel runs on the three engines and after
+  10.4 to 30.2 s alone (2019 and 2025), each maximum within 0.04 s of its median; a healthy one-row call sent 1.5 s in
+  returned `ok` after up to 28.7 s on 2022 and 2019, and on 2025 `Timeout` after 6.4 to 9.2 s. With 30 such calls
+  the answers came within 5.62 s on 2022 and 2019 in parallel runs, but at a median of 6.7 s alone on 2019 and at
+  most 7.5 s in a parallel run on 2025, where the healthy call got `Timeout` at 6,014 ms. Calls frozen at the
+  rollback kept within 5.65 s at every count. Run 5 on `a38fd06`, 60 such calls at a limit of 5 s, once in a
+  parallel run and once alone per engine: median answers 10.8, 12.1 and 10.8 s in parallel and 10.2, 10.2 and
+  10.5 s alone (2022, 2019, 2025); the healthy call returned `ok` after 8.7 to 10.6 s on 2022 and 2019, and on 2025
+  got `Timeout` at 6.2 s, alone too. While answers are delayed this way, the server's own cutoff timer can run late
+  too, so a call whose work ended after its limit plus 0.5 s could still return data (reasoned from the code; not
+  observed).
+  Until the clean-up ends, SQL Server may still run the query, and the session keeps its read transaction and its
+  locks. Measured in run 4 on `12706a1`: with heavy rows on a healthy link at a limit of 5 s, in one run per
+  engine the session was gone at the answer on SQL Server 2022 and 2025 and ended 1.8 s after it on 2019 (alone:
+  0.9 s); in other heavy-row runs at 5 and 10 s, on all three engines, the reader's request and open transaction
+  were still there 1.5 s after the answer (when they ended was not timed), and repeats at 5 s on fresh containers
+  (2019, 2025) were clean by then; two 2019 repeats at 10 s were not. A connection frozen or throttled kept its session,
+  and a writer on the same rows waited, until the network worked again or the connection was cut. On
+  `12706a1` such a session could stay until the server process exited (U-1).
+  Since `a38fd06` the server closes a connection the client library gave up and left open, so SQL Server ends
+  the session once the client's close reaches it. That close is best effort, by a reading of the code: when a
+  network callback of the client library is still pending at that close, the server does not close the connection,
+  and that session stays as on `12706a1` (no repository test is built to produce that case, and none observed it);
+  a connection the client library breaks only after the server's close is not closed either; and whether the client
+  library's own timers can still use a connection the server closed is not covered (run 5: no crash in 312 process
+  ends). Measured in run 5 on `a38fd06`, three engines: on a frozen link (a truncated result whose connection then
+  froze, a call frozen in the middle of a row, 120 such calls at once), after a client cancel, after a cut and for
+  the schema tools, no session of the call was left after the release (0.2 to 0.7 s after it where timed);
+  `12706a1`, run the same way, still had the session 60 s after the release for the truncated result, the 120 calls
+  and a cancelled truncated result. On a link throttled to 5 KB/s this does not hold for every `Timeout`: next
+  bullet (U-1R). The repository's tests (`StdioServerTests.LeftOpenSessions.cs`, limit 3 s, one call per case, on
+  `a38fd06`, on Windows, on the three images) found no session, open transaction or lock of the call within 2 s after
+  the network worked again, for a truncated result whose reader close froze, with and without its cancel held, and for a
+  `Timeout` on a link throttled to 5 KB/s; one of these tests is not stable (next bullet). If the close never
+  reaches SQL Server, the session stays until SQL Server
+  finds the connection dead by itself (not measured) (`docs/reference.md`, "Commands and exit codes"). The fix reads
+  internal members of the client library, so it depends on the version the release ships (Microsoft.Data.SqlClient
+  7.1.1). Gate tests (`LeftOpenConnectionsGuardTests`), which run in CI and in the release workflow, assert that version
+  and that every internal the fix needs is found, so a version change fails them. The fix's integration tests ran on
+  Windows, where the client library uses its native networking; CI runs them on Ubuntu, with its managed networking;
+  macOS was not tested. Before `12706a1` the answer itself waited for that clean-up (`docs/security-testing.md`, T-1 and
+  T-2). A heavy join or sort can load the server until then. The server does not limit how many calls run at once. The
+  server-side answer is Resource Governor: put the login in a workload group with its own limits (check that your SQL
+  Server edition offers it).
+- **On a slow link, a `Timeout` can leave its session open (U-1R).** Measured in run 5 on `a38fd06`, three engines,
+  on a link throttled to 5 KB/s: 8 of 27 single calls at a limit of 3 s, and 21 of 450 calls repeated 50 in a row at
+  a limit of 2 s (`12706a1`, run 4: 210 of 450), left the reader's session at SQL Server with an open read
+  transaction and a lock. Every one of these calls was answered `Timeout` with one audit line and no data. In the
+  single calls that left it, the client never closed the connection: while the link stayed slow, a writer on the
+  same rows waited 58.3 to 60.3 s, against about 6.1 s when the client closed it, and after the throttle ended the
+  session stayed to the end of each observation (up to 60 s after the release, and after the next call); in the
+  repeated calls, the open transaction and the lock were read 45 s after the release. Longer was not measured. No
+  data leaked and no audit line was missing. The cause is not proven; the fix looks at the connection
+  once, before the server's close. Whether the code before `12706a1` left such sessions was not measured. The
+  repository test
+  `Truncated_result_whose_cancel_is_held_until_the_network_works_again_holds_its_locks_until_then_only`
+  is not stable: on the 2022 image, on Windows, it failed in 2 of 13 runs on `a38fd06` (outside the full suite) and in 2
+  of 6 on `eededa6` (once in the full suite run, once in 5 runs outside the full suite), 4 of 19 together, while the
+  test of the same case without the held cancel passed 10 of 10 runs outside the full suite; no failure message was
+  captured. That it fails for the same reason as U-1R (the fix looks at the connection once, before the close) is
+  reasoned, not proven. It can fail in a CI run or a local run.
+- **Abandoned sessions add up when a client calls again after each `Timeout`.** Each such call can add one more
+  abandoned session (its request, read transaction and locks) when its clean-up has not ended at its cutoff, while
+  the earlier ones still clean up. The server sets no limit of its own on them. Measured in run 4 on
+  `12706a1`, three engines, 50 calls in a row at a limit of 2 s, each on a frozen link: all 50 answered
+  `Timeout` with no data; with the default pool and with `Pooling=false` the reader's sessions at SQL Server grew by
+  one per call; with `Max Pool Size=5` they stopped at 5, and from the sixth call each call waited for a free
+  connection and was answered `Timeout` after about 2.0 s. The same on a throttled link. After the release no
+  session of the reader was left. Run 5 on `a38fd06`, the same 50 calls, once per engine: all answered `Timeout`
+  with no data. On a frozen link the sessions again grew by one per call with the default pool and with
+  `Pooling=false`; with `Max Pool Size=5` they stopped at 5 on SQL Server 2019 and 2025 but reached 12 on 2022; 45 s
+  after the release none held an open transaction. On a throttled link they no longer grew by one per call (at most
+  8 at any sample), and 45 s after the release 0 to 5 per pool setting still held an open transaction and a lock
+  (U-1R).
+  In the repository's test with `Max Pool Size=1` and the one pooled connection held by an abandoned clean-up, a
+  later call waited for that connection and ended at its time limit as `Timeout` (limit 2 s), or at the connection
+  string's `Connect Timeout` of 3 s as `InternalError` (limit 10 s) (`docs/reference.md`, "Commands and exit codes").
 - **Long values still cross the network.** A value that ends the result as `long_value` is never held whole, but
   SQL Server still sends it in full (`docs/reference.md`, "Result limits"; `LargeValueTests`). That read limit holds
   for text and binary values. An xml value with one very large text node, or a large CLR value (`geography`,
@@ -285,8 +380,10 @@ Limits of this measurement:
   2019 the read ended as `Timeout` at the limit of 30 s; `docs/security-testing.md`, run 3). Whether the client
   library held the value whole was not shown; a large CLR value was not measured.
 - **Locks.** The session waits at most the lock timeout and runs at low deadlock priority; under READ COMMITTED its
-  own shared locks can still make a writer wait, until the call ends (`docs/promises.md`, "What it promises"). The
-  time limit of the call is not a hard bound ("CPU, memory and tempdb use" above).
+  own shared locks can still make a writer wait, until the call ends (`docs/promises.md`, "What it promises").
+  For a call ended as `Timeout` or `Cancelled` at its cutoff, its locks and its read transaction stay until its
+  abandoned clean-up ends, which can be after the answer ("CPU, memory and tempdb use" above); on a slow link a
+  `Timeout` can leave them longer, with its session (U-1R above).
 - **Syntax newer than the server.** The gate parses with `TSql170Parser` (the package's parser for version 17.0;
   the newer `TSql180Parser` is not used). On SQL Server 2019, syntax added in 2022 passes the gate and fails on the
   server with a syntax error, or with error 195 for `DATETRUNC`, `GREATEST` and `LEAST` (`DifferentialTests`,
@@ -304,8 +401,16 @@ Limits of this measurement:
   login after start). Choose what the login may read with `scripts/create-readonly-login.sql`.
 - **Secrets on the client side.** The connection string lives in the client's environment or configuration file.
   The server never prints or audits it, but anyone who can read that environment or file can read the password.
-- **Idle sessions stay open.** The server does not change the client library's connection pooling, so idle
-  sessions of the login stay open on SQL Server between calls.
+- **Idle sessions stay open.** The server does not change the client library's connection pooling settings, so
+  idle sessions of the login stay open on SQL Server between calls. When a call that its time limit or a client
+  cancel reached comes to close its connection and that connection is not already closed, the server clears the
+  client library's pool (`SqlConnection.ClearPool`): every connection of the pool, also those other calls are
+  using, is closed instead of reused when it is released, so the calls that follow open new physical connections
+  and log in again. For a call answered at its cutoff, this happens when its clean-up reaches the close, after the
+  answer, and not while its connection stays frozen. In run 4 (limit 8 s, three engines), one call frozen in the
+  middle of a row and ended by its limit or by a client cancel did not break ten healthy calls that shared its pool:
+  all returned `ok` with the right rows; run 5 on `a38fd06` the same. In run 5, 0 of 3 to 4 idle pooled sessions
+  survived a broken call, on `12706a1` as well.
 
 ## Reporting a problem
 

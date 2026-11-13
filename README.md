@@ -35,8 +35,10 @@ Each promise in short; the full text, with the test files that check it, is in [
   has still run and the call returns an error and no data ([full text](docs/promises.md#audit-line-before-data)).
 - **Results are capped by rows, characters and time** ([full text](docs/promises.md#result-caps)).
 - **A query waits a bounded time for locks and loses deadlocks against default-priority sessions.** Its own shared
-  locks can still make a writer wait, until the call ends
-  ([full text](docs/promises.md#lock-timeout-and-deadlock-priority)).
+  locks can still make a writer wait, until the call ends, and for a call ended as `Timeout` or `Cancelled` at
+  its cutoff until its clean-up at SQL Server ends, which can be after the answer, and on a slow link a `Timeout`
+  can leave them longer, with its session ([U-1R](SECURITY.md#known-limits);
+  [full text](docs/promises.md#lock-timeout-and-deadlock-priority)).
 
 How each promise is checked, and where. Test counts are kept in one place,
 [Building and testing](docs/building-and-testing.md); the CI badge above shows the result of the last run on `main`.
@@ -47,7 +49,7 @@ How each promise is checked, and where. Test counts are kept in one place,
 | SQL Server ran the allowed text or refused it before running | Every allowed row of the regression table is sent to SQL Server as the reader; lexer cases (invisible and separator characters, comment and string forms, ODBC escapes) are sent too, and the test asserts exactly how many end each way | [DifferentialTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/DifferentialTests.cs), [ParserVersusServerLexerTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/ParserVersusServerLexerTests.cs) |
 | The server refuses to start with a login that fails its permission check | Started with `sa`, the process exits 3 with one stderr line | [StdioServerTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.cs), [PermissionCheckTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/PermissionCheckTests.cs) |
 | No call returns data before its audit line is written | One line per call plus one startup line; no data when the audit file fails | [AuditTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/AuditTests.cs), [StdioServerTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.cs), [MssqlReadOnlyMcp.Audit.Tests](tests/MssqlReadOnlyMcp.Audit.Tests) |
-| Results are capped by rows, characters and time | Row cap, character cap, cell cut, time limit per call, lock timeout; a row that cannot fit the character cap is not held whole in memory, but the cells read and the rest of the row still cross the network | [CapsTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CapsTests.cs), [CallLimitTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CallLimitTests.cs) |
+| Results are capped by rows, characters and time | Row cap, character cap, cell cut, time limit per call, lock timeout; a row that cannot fit the character cap is not held whole in memory, but the cells read and the rest of the row still cross the network; a call on a frozen, throttled or held connection is answered as `Timeout` within its time limit plus 2.5 s (the tests' bound; a truncated result whose reader close freezes is answered `ok` with the rows read before the limit), and its clean-up at SQL Server can go on after the answer; in attack test run 4, many calls frozen at once in the middle of a row delayed the answers of every call: at a limit of 5 s with 60 or 120 such calls, the median answer came after 8.2 to 30.2 s (run 5, with 60: 10.2 to 12.1 s; U-2 in [Security testing](docs/security-testing.md)) | [CapsTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CapsTests.cs), [CallLimitTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CallLimitTests.cs), [StdioServerTests.AnswerAtTheLimit.cs](tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.AnswerAtTheLimit.cs) |
 | Bounded lock wait, low deadlock priority | An exclusive lock held elsewhere returns the lock timeout reason near the limit; against a session at the default priority the reader is the deadlock victim, and the next call works | [CapsTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/CapsTests.cs), [ValueTypeTests.cs](tests/MssqlReadOnlyMcp.IntegrationTests/ValueTypeTests.cs) |
 | Tested on SQL Server 2019, 2022 and 2025 | On every push and pull request: the build and unit tests, then, when they pass, the integration tests on each of three container images pinned by exact tag | [ci.yml](.github/workflows/ci.yml); test counts in [Building and testing](docs/building-and-testing.md); the CI badge above |
 | Code scanning | CodeQL analyses the C# code and the workflow files on pushes to `main`, on pull requests and once a week | [codeql.yml](.github/workflows/codeql.yml) |
@@ -91,7 +93,8 @@ More limits are in [SECURITY.md](SECURITY.md).
 - The commands below are PowerShell 7 (`Read-Host -MaskInput` needs 7.1 or later).
 - A SQL Server the machine can reach. The integration tests passed on 2026-11-12 on three Linux container images:
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`, `2022-CU27-ubuntu-22.04` and
-  `2025-CU9-GDR1-ubuntu-22.04`. Other versions and Windows installations were not tested.
+  `2025-CU9-GDR1-ubuntu-22.04`. Other versions and Windows installations were not tested. One of those tests is not
+  stable (U-1R in [SECURITY.md](SECURITY.md#known-limits)).
 - On SQL Server 2019 some allowed syntax is newer than the server; it fails there with an error and nothing runs
   (["Syntax newer than SQL Server 2019"](docs/sql-gate.md#syntax-newer-than-sql-server-2019)).
 
