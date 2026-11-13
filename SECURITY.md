@@ -107,7 +107,12 @@ Gate (`tests/MssqlReadOnlyMcp.Gate.Tests`, no database needed):
   gate never throws.
 - `LeftOpenConnectionsGuardTests`: the referenced client library is Microsoft.Data.SqlClient 7.1.1, the version
   whose internals the server's fix for U-1 reads (`docs/reference.md`, "Commands and exit codes"); every internal the
-  fix needs is found; the network handle resolves on both the native and the managed network type.
+  fix needs is found, each named; the network handle resolves on both the native and the managed network type.
+- `LeftOpenConnectionsDecisionTests`: the fix's decision on client library objects built in the test (no SQL
+  Server), for the native and the managed network type: a `Closed` parser, and a `Broken` one whose connection is
+  doomed, closed and held by no other `SqlConnection`, are found and closed; a `Broken` parser whose connection is
+  not doomed, still open, held by another `SqlConnection` or without an internal connection, a state object without
+  its handle, with a network callback pending or of an unknown type, and a parser logged in are not (U-1R).
 - `AuditSiblingProcessTests`: two processes of the built server, started together on one audit path without SQL
   Server, each hold an audit file of their own; exactly one prints the sibling line on stderr, and both files verify.
   The stderr line names the sibling by file name only. Run on Windows, and in CI on Ubuntu, where it passed on
@@ -145,9 +150,10 @@ Audit (`tests/MssqlReadOnlyMcp.Audit.Tests`, no database needed):
   of 9 exactly one fails with the bound's message. Run on Windows, and in CI on Ubuntu, where they passed on
   2026-11-13.
 
-Integration (`tests/MssqlReadOnlyMcp.IntegrationTests`, a real SQL Server in a container; passed on 2026-11-13,
-locally and in CI, on the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images; one test is not stable: U-1R under
-"Known limits"):
+Integration (`tests/MssqlReadOnlyMcp.IntegrationTests`, a real SQL Server in a container; passed on 2026-11-13 on
+the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images, locally on Windows on the code with the U-1R fix, 259 of 259
+on each, one run per image, and in CI on Ubuntu on the code before that fix; one test is not stable: the U-1R bullet
+under "Known limits"):
 
 - `GateRefusalTests`: refused statements open no connection, create no command, and leave every table, the
   sequence, the object catalogue and the logins unchanged. A write sent past the gate on purpose is refused by
@@ -348,10 +354,11 @@ Limits of this measurement:
   froze, a call frozen in the middle of a row, 120 such calls at once), after a client cancel, after a cut and for
   the schema tools, no session of the call was left after the release (0.2 to 0.7 s after it where timed);
   `12706a1`, run the same way, still had the session 60 s after the release for the truncated result, the 120 calls
-  and a cancelled truncated result. On a link throttled to 5 KB/s this does not hold for every `Timeout`: next
-  bullet (U-1R). The repository's tests (`StdioServerTests.LeftOpenSessions.cs`, limit 3 s, one call per case, on
-  `a38fd06`, on Windows, on the three images) found no session, open transaction or lock of the call within 2 s after
-  the network worked again, for a truncated result whose reader close froze, with and without its cancel held, and for a
+  and a cancelled truncated result. On a link throttled to 5 KB/s this did not hold for every `Timeout` up to
+  v0.1.0; v0.1.1 also closes that case: next bullet (U-1R). The repository's tests
+  (`StdioServerTests.LeftOpenSessions.cs`, limit 3 s, one call per case, on `a38fd06`, on Windows, on the three
+  images) found no session, open transaction or lock of the call within 2 s after the network worked again, for a
+  truncated result whose reader close froze, with and without its cancel held, and for a
   `Timeout` on a link throttled to 5 KB/s; one of these tests is not stable (next bullet). If the close never
   reaches SQL Server, the session stays until SQL Server
   finds the connection dead by itself (not measured) (`docs/reference.md`, "Commands and exit codes"). The fix reads
@@ -363,7 +370,8 @@ Limits of this measurement:
   T-2). A heavy join or sort can load the server until then. The server does not limit how many calls run at once. The
   server-side answer is Resource Governor: put the login in a workload group with its own limits (check that your SQL
   Server edition offers it).
-- **On a slow link, a `Timeout` can leave its session open (U-1R).** Measured in run 5 on `a38fd06`, three engines,
+- **Up to v0.1.0, on a slow link, a `Timeout` could leave its session open (U-1R); v0.1.1 closes it, best
+  effort.** Measured in run 5 on `a38fd06`, three engines,
   on a link throttled to 5 KB/s: 8 of 27 single calls at a limit of 3 s, and 21 of 450 calls repeated 50 in a row at
   a limit of 2 s (`12706a1`, run 4: 210 of 450), left the reader's session at SQL Server with an open read
   transaction and a lock. Every one of these calls was answered `Timeout` with one audit line and no data. In the
@@ -371,15 +379,36 @@ Limits of this measurement:
   same rows waited 58.3 to 60.3 s, against about 6.1 s when the client closed it, and after the throttle ended the
   session stayed to the end of each observation (up to 60 s after the release, and after the next call); in the
   repeated calls, the open transaction and the lock were read 45 s after the release. Longer was not measured. No
-  data leaked and no audit line was missing. The cause is not proven; the fix looks at the connection
-  once, before the server's close. Whether the code before `12706a1` left such sessions was not measured. The
-  repository test
+  data leaked and no audit line was missing. Whether the code before `12706a1` left such sessions was not measured.
+  The cause, as diagnosed after v0.1.0 with a build that logs the client library's state (2022 image, on Windows):
+  the client library's command timeout fires in the middle of a row while the server's reader close drains the
+  throttled result; the library breaks the connection, and its parser becomes `Closed`, but the same read goes on
+  parsing, reads row data as a token and breaks the connection a second time, which leaves the parser `Broken`. The
+  fix of v0.1.0 closed only a connection whose parser was `Closed`, so it left this one open. Since v0.1.1 the server
+  also closes a connection whose parser is `Broken`, when the client library has doomed it, the call's own
+  `SqlConnection` is closed and no other `SqlConnection` holds it, with the earlier checks (the network handle is
+  still there, no network callback is pending). It is still best effort, and it fails closed: when an internal member
+  of the client library that it reads is missing, it closes nothing, and the Gate tests fail. Unit tests without SQL
+  Server (`LeftOpenConnectionsDecisionTests`) check each condition. Retest on 2026-11-13, on Windows, on the 2022
+  image, the throttled case with a limit of 3 s and the throttle held 10 s after the limit, one call per run in a new
+  server process: in 100 of 100 runs no connection was left open and the server exited with code 0; with the
+  diagnostic build (it also logs the client library's state, which can change timing), 25 of 25 runs left none, the new
+  `Broken` case closed it in 2 of them (in both the connection was doomed and had no owner) and the `Closed` case in
+  23. In the diagnosis, the same case with the throttle held 60 s, on the code before the fix, left it open in 5 of
+  12 runs. Not shown: the fix on SQL Server 2019 and 2025 in the throttled case, the 50 calls in a row of run 5, a
+  link throttled for 60 s as in run 5, a real slow network (the retest throttles a local link), and Linux and macOS;
+  the attack tests were not run again. The repository test
   `Truncated_result_whose_cancel_is_held_until_the_network_works_again_holds_its_locks_until_then_only`
   is not stable: on the 2022 image, on Windows, it failed in 2 of 13 runs on `a38fd06` (outside the full suite) and in 2
   of 6 on `eededa6` (once in the full suite run, once in 5 runs outside the full suite), 4 of 19 together, while the
   test of the same case without the held cancel passed 10 of 10 runs outside the full suite; no failure message was
-  captured. That it fails for the same reason as U-1R (the fix looks at the connection once, before the close) is
-  reasoned, not proven. It can fail in a CI run or a local run.
+  captured then, so the cause of those failures is not known. The failures whose message was captured after v0.1.0
+  had a cause other than U-1R: one in 40 local runs on the 2022 image (20 of them with a copy of the test that logs
+  SQL Server's view of the connection) and one CI run on the 2019 image failed with the same message, the request had
+  ended while the cancel was held. In the local one, SQL Server ended the request on its own about 0.3 s after it
+  started, because the whole result (about 26 MB) fit into the network buffers between SQL Server and the test's
+  proxy, so no request was left to hold. The fix of v0.1.1 does not change that. It can fail in a CI run or a local
+  run.
 - **Abandoned sessions add up when a client calls again after each `Timeout`.** Each such call can add one more
   abandoned session (its request, read transaction and locks) when its clean-up has not ended at its cutoff, while
   the earlier ones still clean up. The server sets no limit of its own on them. Measured in run 4 on
@@ -407,8 +436,8 @@ Limits of this measurement:
 - **Locks.** The session waits at most the lock timeout and runs at low deadlock priority; under READ COMMITTED its
   own shared locks can still make a writer wait, until the call ends (`docs/promises.md`, "What it promises").
   For a call ended as `Timeout` or `Cancelled` at its cutoff, its locks and its read transaction stay until its
-  abandoned clean-up ends, which can be after the answer ("CPU, memory and tempdb use" above); on a slow link a
-  `Timeout` can leave them longer, with its session (U-1R above).
+  abandoned clean-up ends, which can be after the answer ("CPU, memory and tempdb use" above); up to v0.1.0, on a
+  slow link a `Timeout` could leave them longer, with its session, which v0.1.1 closes, best effort (U-1R above).
 - **Syntax newer than the server.** The gate parses with `TSql170Parser` (the package's parser for version 17.0;
   the newer `TSql180Parser` is not used). On SQL Server 2019, syntax added in 2022 passes the gate and fails on the
   server with a syntax error, or with error 195 for `DATETRUNC`, `GREATEST` and `LEAST` (`DifferentialTests`,

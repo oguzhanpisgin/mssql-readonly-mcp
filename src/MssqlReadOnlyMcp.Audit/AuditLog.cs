@@ -27,8 +27,10 @@ namespace MssqlReadOnlyMcp.Audit;
 /// <see cref="OpenOrSibling(string, string, TimeProvider?)"/> writes a sibling file in the same folder instead (for
 /// <c>audit.jsonl</c>: <c>audit.2.jsonl</c> up to <c>audit.8.jsonl</c>), so the record of one configured path can be
 /// several files, each a chain of its own; a reader who checks only the configured file misses the others. A file
-/// whose lock another handle holds is not verified by this process at that start. On Linux the same code is present
-/// but not yet run; its first run will be in CI. On every other platform a held lock stays fatal.</description></item>
+/// whose lock another handle holds is not verified by this process at that start. On Linux the same code has run only
+/// in the repository's tests, which passed in CI on Ubuntu on 2026-11-13; whether each of them reached the
+/// <c>flock</c> refusal (errno 11) was not read from a log line. On every other platform a held lock stays
+/// fatal.</description></item>
 /// </list>
 /// <para>
 /// Fail-closed: when a line cannot be written and flushed, <see cref="Append(AuditEntry)"/> throws

@@ -409,6 +409,26 @@ public sealed class AuditSiblingTests : IDisposable
         }
     }
 
+    // D-N4: a configured path that ends in a folder separator names no file (a sibling of it would be a folder name
+    // with a number); both opens refuse it with the same message before creating anything.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void A_path_that_ends_in_a_folder_separator_is_refused(bool orSibling, bool alternateSeparator)
+    {
+        string path = _dir.File("audit") + (alternateSeparator ? Path.AltDirectorySeparatorChar : Path.DirectorySeparatorChar);
+
+        var ex = Assert.Throws<AuditWriteException>(() => orSibling
+            ? AuditLog.OpenOrSibling(path, "s", new FixedTime())
+            : AuditLog.Open(path, "s", new FixedTime()));
+
+        Assert.Equal("The audit path ends in a folder separator; it must name a file, for example audit.jsonl.", ex.Message);
+        Assert.False(ex.LockHeld);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(_dir.Path));
+    }
+
     private static string? Field(byte[] line, string name) =>
         JsonDocument.Parse(line).RootElement.GetProperty(name).GetString();
 

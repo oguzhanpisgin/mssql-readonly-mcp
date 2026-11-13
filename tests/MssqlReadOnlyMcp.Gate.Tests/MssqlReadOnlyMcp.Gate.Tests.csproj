@@ -20,8 +20,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MssqlReadOnlyMcp.Gate\MssqlReadOnlyMcp.Gate.csproj" />
-    <!-- Only for LeftOpenConnectionsGuardTests: the guard of the SqlClient internals the server relies on runs here,
-         without SQL Server, so ci.yml and release.yml (which run these tests) both run it. -->
+    <!-- For LeftOpenConnectionsGuardTests and LeftOpenConnectionsDecisionTests: the guard of the SqlClient internals the
+         server relies on, and the decisions of its U-1 fix, run here without SQL Server, so ci.yml and release.yml
+         (which run these tests) both run them. Also for AuditSiblingProcessTests and ServerConfigMessageTests, which
+         start the built server (ServerProcess) or use its types. -->
     <ProjectReference Include="..\..\src\MssqlReadOnlyMcp\MssqlReadOnlyMcp.csproj" />
   </ItemGroup>
 

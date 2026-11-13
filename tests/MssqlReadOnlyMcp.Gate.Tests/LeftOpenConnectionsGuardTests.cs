@@ -29,6 +29,42 @@ public sealed class LeftOpenConnectionsGuardTests
         Assert.True(LeftOpenConnections.Available, "LeftOpenConnections found not all SqlClient internals it needs; the U-1 fix does nothing.");
     }
 
+    // Each internal LeftOpenConnections needs, by name: when one is missing, Available is false (the test above fails)
+    // and the case here names which one.
+    [Theory]
+    [InlineData("SqlConnection.Parser")]
+    [InlineData("TdsParser._state, with the values Closed and Broken")]
+    [InlineData("TdsParser._physicalStateObj")]
+    [InlineData("TdsParserStateObject._pendingCallbacks (int)")]
+    [InlineData("TdsParserStateObject.Dispose()")]
+    [InlineData("TdsParser._connHandler")]
+    [InlineData("internal connection IsConnectionDoomed (bool)")]
+    [InlineData("internal connection Owner (DbConnection)")]
+    public void Each_SqlClient_internal_of_the_fix_resolves(string member)
+    {
+        const BindingFlags Members = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+        var parser = typeof(SqlConnection).GetProperty("Parser", Members);
+        var parserType = parser?.PropertyType;
+        var state = parserType?.GetField("_state", Members);
+        var physical = parserType?.GetField("_physicalStateObj", Members);
+        var handler = parserType?.GetField("_connHandler", Members);
+        var resolved = member switch
+        {
+            "SqlConnection.Parser" => parser is not null,
+            "TdsParser._state, with the values Closed and Broken" =>
+                state is { FieldType.IsEnum: true } && Enum.IsDefined(state.FieldType, "Closed") && Enum.IsDefined(state.FieldType, "Broken"),
+            "TdsParser._physicalStateObj" => physical is not null,
+            "TdsParserStateObject._pendingCallbacks (int)" => physical?.FieldType.GetField("_pendingCallbacks", Members)?.FieldType == typeof(int),
+            "TdsParserStateObject.Dispose()" => physical?.FieldType.GetMethod("Dispose", Members, Type.EmptyTypes) is not null,
+            "TdsParser._connHandler" => handler is not null,
+            "internal connection IsConnectionDoomed (bool)" => handler?.FieldType.GetProperty("IsConnectionDoomed", Members)?.PropertyType == typeof(bool),
+            "internal connection Owner (DbConnection)" => handler?.FieldType.GetProperty("Owner", Members)?.PropertyType == typeof(System.Data.Common.DbConnection),
+            _ => throw new ArgumentOutOfRangeException(nameof(member), member, null),
+        };
+
+        Assert.True(resolved, $"SqlClient internal not found: {member}");
+    }
+
     [Fact]
     public void The_network_handle_resolves_on_the_native_and_the_managed_state_object()
     {

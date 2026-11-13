@@ -140,15 +140,24 @@ crash in 312 process ends). Measured in run 5 on `a38fd06`, three engines: on a 
 connection then froze, a call frozen in the middle of a row, 120 such calls at once), after a client cancel, after a
 cut and for the schema tools, no session of the call was left after the release (0.2 to 0.7 s after it where
 timed); `12706a1`, run the same way, still had the session 60 s after the release for the truncated result, the 120
-calls and a cancelled truncated result. On a link throttled to 5 KB/s this does not hold for every `Timeout` (U-1R
-in the record): 8 of 27 single calls at a limit of 3 s, and 21 of 450 calls repeated 50 in a row at a limit of 2 s
-(`12706a1`, run 4: 210 of 450), left the reader's session with an open read transaction and a lock, on all
+calls and a cancelled truncated result. On a link throttled to 5 KB/s this did not hold for every `Timeout` up to
+v0.1.0 (U-1R in the record): 8 of 27 single calls at a limit of 3 s, and 21 of 450 calls repeated 50 in a row at a
+limit of 2 s (`12706a1`, run 4: 210 of 450), left the reader's session with an open read transaction and a lock, on all
 three engines. In the single calls that left it, the client never closed the connection: while the link stayed
 slow, a writer on the same rows waited 58.3 to 60.3 s, against about 6.1 s when the client closed it, and after the
 throttle ended the session stayed to the end of each observation (up to 60 s after the release, and after the next
 call); in the repeated calls, the open transaction and the lock were read 45 s after the release. Longer was not
-measured. No data leaked and no audit line was missing. The cause is not proven; the fix looks at the connection
-once, before the server's close. Whether the code before `12706a1` left such sessions was not measured. The
+measured. No data leaked and no audit line was missing. Whether the code before `12706a1` left such sessions was not
+measured. As diagnosed after v0.1.0 (2022 image), the client library's command timeout fires in the middle of a row
+while the server's reader close drains the throttled result, and the library breaks the connection twice: its parser
+ends `Broken`, not `Closed`, and the fix of v0.1.0 closed only a `Closed` one. Since v0.1.1 the server also closes a
+connection whose parser is `Broken`, when the client library has doomed it, the call's own `SqlConnection` is closed
+and no other `SqlConnection` holds it, with the same pending-callback and handle checks; when an internal member it
+reads is missing, it closes nothing. Retest on 2026-11-13, on Windows, 2022 image, single calls at a limit of 3 s,
+the throttle held 10 s after the limit: 100 of 100 runs left no connection open (in a 25-run diagnostic retest the
+`Broken` case closed it in 2). Not shown: SQL Server 2019 and 2025 in this case, the 50 calls in a row of run 5, a
+link throttled for 60 s as in run 5, a real slow network, Linux and macOS
+([Security testing](security-testing.md#findings), U-1R). The
 repository's tests (`StdioServerTests.LeftOpenSessions.cs`, limit 3 s, one call per case, on `a38fd06`, on Windows,
 on the three images) found no session, open transaction or lock of the call within 2 s after the network worked again,
 for a truncated result whose reader close froze, with and without its cancel held, and for a `Timeout` on a link
@@ -156,15 +165,19 @@ throttled to 5 KB/s. One of these tests,
 `Truncated_result_whose_cancel_is_held_until_the_network_works_again_holds_its_locks_until_then_only`,
 is not stable: on the 2022 image, on Windows, it failed in 2 of 13 runs on `a38fd06` (outside the full suite) and in 2
 of 6 on `eededa6` (once in the full suite run, once in 5 runs outside the full suite), 4 of 19 together, while the test
-of the same case without the held cancel passed 10 of 10 runs outside the full suite; no failure message was captured.
-That it fails for the same reason as U-1R (the fix looks at the connection once, before the close) is reasoned, not
-proven. It can fail in a CI run or a local run. If the close never reaches SQL Server, the session stays until SQL
-Server finds the connection dead by itself (not measured); run 4 kept one link frozen, or throttled to 5 KB/s, through
+of the same case without the held cancel passed 10 of 10 runs outside the full suite; no failure message was captured
+then, so the cause of those failures is not known. The failures whose message was captured after v0.1.0 (one in 40
+local runs on the 2022 image, one CI run on the 2019 image) had a cause other than U-1R: the request had ended while
+the cancel was held; in the local one, SQL Server ended it on its own because the whole result fit into the network
+buffers between SQL Server and the test's proxy. It can fail in a CI run or a local run. If the close
+never reaches SQL Server, the session stays until SQL Server finds the connection dead by itself (not measured); run 4
+kept one link frozen, or throttled to 5 KB/s, through
 50 calls in a row for about 2 minutes, kept 120 calls frozen until the last was answered, about 30 s on 2022 and 2019,
 and watched a session left after a release for at most 180 s. The fix reads internal members of the client library, so
 it depends on the version the release ships (Microsoft.Data.SqlClient 7.1.1). Gate tests
 (`LeftOpenConnectionsGuardTests`), which run in CI and in the release workflow, assert that version and that every
-internal the fix needs is found, so a version change fails them. The fix's integration tests ran on Windows, where the
+internal the fix needs is found, so a version change fails them; `LeftOpenConnectionsDecisionTests` check, without
+SQL Server, which connections the fix closes. The fix's integration tests ran on Windows, where the
 client library uses its native networking; CI runs them on Ubuntu, with its managed networking; macOS was not tested.
 The audit line's `duration_ms` and the stderr line's `<ms>` are the time from the start of the call to its cutoff or its
 answer, not the time SQL Server worked on it. An abandoned clean-up writes no audit line and no stderr line, also when

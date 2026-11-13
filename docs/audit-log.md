@@ -92,11 +92,9 @@ Limits, quoted from the `AuditLog` class documentation (`src/MssqlReadOnlyMcp.Au
 >   same folder instead (for `audit.jsonl`: `audit.2.jsonl` up to `audit.8.jsonl`), so the record of one configured
 >   path can be several files, each a chain of its own; a reader who checks only the configured file misses the
 >   others. A file whose lock another handle holds is not verified by this process at that start. On Linux the same
->   code is present but not yet run; its first run will be in CI. On every other platform a held lock stays fatal.
-
-That comment predates the first Linux run: on Linux the code has since run only in the repository's tests, which
-passed in CI on Ubuntu on 2026-11-13; whether each test reached the `flock` refusal (errno 11) was not read from a
-log line.
+>   code has run only in the repository's tests, which passed in CI on Ubuntu on 2026-11-13; whether each of them
+>   reached the `flock` refusal (errno 11) was not read from a log line. On every other platform a held lock stays
+>   fatal.
 
 The server has no command that copies the last hash elsewhere. To detect tail truncation or a rewrite, copy the
 `hash` of the last line to a place the server's user cannot write, on a schedule you choose.

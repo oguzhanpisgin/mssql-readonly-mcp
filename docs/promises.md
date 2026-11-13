@@ -78,5 +78,6 @@ Each promise names the test files that check it. Test files are under `tests/`.
   priority, the reader is the victim, and the next call works. Limit: while a query runs under the default READ
   COMMITTED level, its own shared locks can still make a writer wait, until the call ends; for a call ended as
   `Timeout` or `Cancelled` at its cutoff, its locks and its read transaction stay until its abandoned clean-up
-  ends, which can be after the answer, and on a slow link a `Timeout` can leave them longer, with its session
-  (U-1R in [Security testing](security-testing.md); ["Commands and exit codes"](reference.md#commands-and-exit-codes)).
+  ends, which can be after the answer; up to v0.1.0, on a slow link a `Timeout` could leave them longer, with its
+  session, which v0.1.1 closes, best effort (U-1R in [Security testing](security-testing.md#findings);
+  ["Commands and exit codes"](reference.md#commands-and-exit-codes)).

@@ -19,17 +19,23 @@ dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release
 - `MSSQL_TEST_IMAGE` selects the SQL Server container image, for example
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`. Without it the tests use
   `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04` (`SqlServerFixture.cs`).
-- Test counts in the last full local run (2026-11-13, on Windows, one run): Gate 387, Audit 86, Integration 259 on
-  each of the three images named under ["Prerequisites"](../README.md#1-prerequisites), all passed; CI on Ubuntu
-  passed with the same counts on 2026-11-13. In the full run
-  before it, on `eededa6` (then Gate 367, Audit 55, Integration 259), all passed except one integration test on the
-  2022 image (258 of 259). That test,
+- Test counts in the last full local run, on the code with the U-1R fix (2026-11-13, on Windows, one run per image):
+  Gate 416, Audit 90, Integration 259 on each of the three images named under
+  ["Prerequisites"](../README.md#1-prerequisites), all passed. CI on Ubuntu runs the same tests on every push to
+  `main` (the CI badge in the README shows the last result); its last run recorded here, on 2026-11-13 on the code
+  before the U-1R fix, passed with Gate 387, Audit 86 and Integration 259 on each image, as did the full local run
+  on that code the same day. In an earlier full run, on `eededa6` (then Gate 367, Audit 55, Integration 259), all
+  passed except one integration test on the 2022 image (258 of 259). That test,
   `Truncated_result_whose_cancel_is_held_until_the_network_works_again_holds_its_locks_until_then_only`,
   is not stable: on the 2022 image, on Windows, it failed in 2 of 13 runs on `a38fd06` (outside the full suite) and in 2
   of 6 on `eededa6` (once in the full suite run, once in 5 runs outside the full suite), 4 of 19 together, while the
   test of the same case without the held cancel passed 10 of 10 runs outside the full suite; no failure message was
-  captured. That it fails for the same reason as U-1R (the fix looks at the connection once, before the close) is
-  reasoned, not proven. It is not fixed and can still fail in a CI run or a local run. See U-1R in [Security testing](security-testing.md).
+  captured then, so the cause of those failures is not known. The failures whose message was captured after v0.1.0
+  (one in 40 local runs on the 2022 image, one CI run on the 2019 image) had a cause other than U-1R: the request had
+  ended while the cancel was held; in the local one, SQL Server ended it on its own because the whole result fit into
+  the network buffers between SQL Server and the test's proxy, so nothing was left to hold. It passed on each image in
+  the last full local run; one run per image does not show it stable. It is not fixed and can still fail in a CI run or
+  a local run. See U-1R in [Security testing](security-testing.md#findings).
 - `ErpScaleTests.cs` creates a second database with 20,000 tables and asserts that the startup check passes there
   within the default connection timeout (15 s); it writes the time to its output. Measured on 2026-11-12 on one
   machine, one run per version of a Debug build: 1.3 s on SQL Server 2022, 1.4 s on 2019 and 1.8 s on 2025 with no

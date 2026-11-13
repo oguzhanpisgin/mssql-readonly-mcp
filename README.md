@@ -30,9 +30,9 @@ Each promise in short; the full text, with the test files that check it, is in [
 - **Results are capped by rows, characters and time** ([full text](docs/promises.md#result-caps)).
 - **A query waits a bounded time for locks and loses deadlocks against default-priority sessions.** Its own shared
   locks can still make a writer wait, until the call ends, and for a call ended as `Timeout` or `Cancelled` at
-  its cutoff until its clean-up at SQL Server ends, which can be after the answer, and on a slow link a `Timeout`
-  can leave them longer, with its session ([U-1R](SECURITY.md#known-limits);
-  [full text](docs/promises.md#lock-timeout-and-deadlock-priority)).
+  its cutoff until its clean-up at SQL Server ends, which can be after the answer; up to v0.1.0, on a slow link a
+  `Timeout` could leave them longer, with its session, which v0.1.1 closes, best effort
+  ([U-1R](SECURITY.md#known-limits); [full text](docs/promises.md#lock-timeout-and-deadlock-priority)).
 
 How each promise is checked, and where. Test counts are kept in one place,
 [Building and testing](docs/building-and-testing.md); the CI badge above shows the result of the last run on `main`.
@@ -84,7 +84,8 @@ for Windows and PowerShell 7; Linux and macOS forms, building from source and wh
 - A SQL Server the machine can reach. The integration tests passed on 2026-11-13 on three Linux container images:
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`, `2022-CU27-ubuntu-22.04` and
   `2025-CU9-GDR1-ubuntu-22.04`. Other versions and Windows installations were not tested. One of those tests is not
-  stable (U-1R in [SECURITY.md](SECURITY.md#known-limits)).
+  stable; the failures whose message was captured after v0.1.0 had a cause other than U-1R (both in
+  [SECURITY.md](SECURITY.md#known-limits)).
 - On SQL Server 2019 some allowed syntax is newer than the server; it fails there with an error and nothing runs
   (["Syntax newer than SQL Server 2019"](docs/sql-gate.md#syntax-newer-than-sql-server-2019)).
 - `sqlcmd`, to run the login script as a database administrator; Microsoft's page "Download and install the sqlcmd
@@ -99,7 +100,7 @@ because every client starts the executable in it: a folder created at the drive 
 lets every signed-in user replace its files, a folder in your profile does not.
 
 ```powershell
-$v = '0.1.0'; $name = "mssql-readonly-mcp-$v-win-x64"
+$v = '0.1.1'; $name = "mssql-readonly-mcp-$v-win-x64"
 $base = "https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v$v"
 Invoke-WebRequest "$base/$name.zip" -OutFile "$name.zip"; Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
 if ((Get-FileHash "$name.zip").Hash -ne (Select-String -SimpleMatch "$name.zip" SHA256SUMS).Line.Split(' ')[0]) { throw 'SHA-256 does not match SHA256SUMS' }
@@ -180,7 +181,7 @@ Every client starts the program itself and passes it two variables: `MSSQL_CONNE
 
 | Client | Where the connection string is kept | Tested by this project |
 | --- | --- | --- |
-| [Claude Desktop](#claude-desktop) | The operating system's credential store (the bundle marks it `sensitive`) | A bundle built before the release (not the v0.1.0 one) installed in the Microsoft Store build; its server answered `tools/list`; a tool call typed in the chat window not shown |
+| [Claude Desktop](#claude-desktop) | The operating system's credential store (the bundle marks it `sensitive`) | A bundle built before v0.1.0 (no bundle of a published release) installed in the Microsoft Store build; its server answered `tools/list`; a tool call typed in the chat window not shown |
 | [Claude Code](#claude-code) | Plain text, in Claude Code's own file in your home folder | Yes: listed as connected |
 | [Codex CLI and the ChatGPT desktop app](#codex-cli-and-the-chatgpt-desktop-app) | Nowhere: forwarded from the environment Codex starts in | The entry is listed; the forwarding is documented, not tested |
 | [VS Code with GitHub Copilot](#vs-code-with-github-copilot) | Asked when the server first starts, then kept by VS Code | Documented; the program was started with the block's command |

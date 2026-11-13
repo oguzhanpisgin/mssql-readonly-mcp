@@ -10,7 +10,7 @@ Download, check and unpack (Linux x64; for macOS on Apple silicon use `osx-arm64
 place of `sha256sum --check`):
 
 ```bash
-v=0.1.0; name=mssql-readonly-mcp-$v-linux-x64
+v=0.1.1; name=mssql-readonly-mcp-$v-linux-x64
 base=https://github.com/oguzhanpisgin/mssql-readonly-mcp/releases/download/v$v
 curl -fL -O "$base/$name.tar.gz" -O "$base/SHA256SUMS"
 grep " $name.tar.gz\$" SHA256SUMS | sha256sum --check
