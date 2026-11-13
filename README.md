@@ -189,7 +189,7 @@ Every client starts the program itself and passes it two variables: `MSSQL_CONNE
 
 | Client | Where the connection string is kept | Tested by this project |
 | --- | --- | --- |
-| [Claude Desktop](#claude-desktop) | The operating system's credential store (the bundle marks it `sensitive`) | Installed in the Microsoft Store build; its server answered `tools/list`; a tool call typed in the chat window not shown |
+| [Claude Desktop](#claude-desktop) | The operating system's credential store (the bundle marks it `sensitive`) | A bundle built before the release (not the v0.1.0 one) installed in the Microsoft Store build; its server answered `tools/list`; a tool call typed in the chat window not shown |
 | [Claude Code](#claude-code) | Plain text, in Claude Code's own file in your home folder | Yes: listed as connected |
 | [Codex CLI and the ChatGPT desktop app](#codex-cli-and-the-chatgpt-desktop-app) | Nowhere: forwarded from the environment Codex starts in | The entry is listed; the forwarding is documented, not tested |
 | [VS Code with GitHub Copilot](#vs-code-with-github-copilot) | Asked when the server first starts, then kept by VS Code | Documented; the program was started with the block's command |
@@ -390,6 +390,7 @@ button under the Security tab of <https://github.com/oguzhanpisgin/mssql-readonl
   versions follow semantic versioning.
 - One maintainer today (GitHub account `oguzhanpisgin`). MIT licence, no warranty (see [LICENSE](LICENSE)): test
   against your own server before you rely on it.
+- Most of the code and the documentation were written with AI coding assistants, directed by the maintainer.
 - Maintainer profile: [oguzhanpisgin](https://github.com/oguzhanpisgin); contact goes only through the two channels above.
 
 This is an independent project, not affiliated with or endorsed by Microsoft, Anthropic or any other vendor;

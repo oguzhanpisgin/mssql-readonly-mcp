@@ -103,21 +103,25 @@ checked by hand, because npm applies an override silently, even where the CLI as
 
 ## Not yet verified
 
-Checked on a Windows machine with the .NET SDK installed and by the hand run named below; not yet shown:
+Shown for v0.1.0 on 2026-11-13: a hand run on the tagged commit built the three archives and the three bundles
+(version `0.0.0-dev`), and the tag run passed the `main` check, attested the six files and created the draft release
+with seven files. Before it was published: `SHA256SUMS` matched all six files, `gh attestation verify` exited 0 for
+each of them (and 1 for a control file), the program of the win-x64 archive, started without configuration, exited 2
+with the line of step 3, the linux-x64 archive lists the program with the executable bit, and the win-x64 bundle's
+manifest says version 0.1.0.
 
-- The first run of this workflow for a tag: the `main` check against `origin/main`, the attestation step and the
-  draft release. (A hand run on 2026-11-13, on an earlier commit of `main` than the one tagged v0.1.0, built the
-  three archives and the three bundles on the Linux runner, version `0.0.0-dev`; the program of the win-x64 archive,
-  started without configuration, exited 2 with the line of step 3.)
-- That the executable bit is kept in the `.tar.gz` archives and `.mcpb` bundles built on the Linux runner.
-- `gh attestation verify` on a downloaded file.
+Not yet shown:
+
+- That the executable bit is kept in the osx-arm64 archive and in the `.mcpb` bundles.
 - Starting the Linux build on Linux and the macOS build on a Mac, including whether Gatekeeper starts a downloaded
   executable that is not notarized. The ad-hoc signature was checked on a build made on Windows only.
 - Starting a build on a machine with no .NET installed at all.
-- Installing a `.mcpb` bundle in any MCPB host other than the Microsoft Store build of Claude Desktop on Windows,
-  or on any other platform. On Windows 11 on 2026-11-13 the win-x64 bundle was installed in the Microsoft Store
-  build 5.11492.2.0 of Claude Desktop; a tool call typed in its chat was not shown (MANIFEST.md says hosts add `.exe`
-  on Windows themselves; the manifest names `mssql-readonly-mcp.exe` in full, see `packaging/build-release.ps1`).
+- Installing a `.mcpb` bundle in any MCPB host other than the Microsoft Store build of Claude Desktop on Windows, or
+  on any other platform. On Windows 11 on 2026-11-13 two win-x64 bundles built before the release were installed in
+  the Microsoft Store build of Claude Desktop: `0.0.0-dev` (app build 5.11492.2.0) and later `0.0.0-dev.2` (app build
+  not recorded); the v0.1.0 bundle was not installed, and a tool call typed in the Claude Desktop chat was not shown
+  (MANIFEST.md says hosts add `.exe` on Windows themselves; the manifest names `mssql-readonly-mcp.exe` in full, see
+  `packaging/build-release.ps1`).
 - That Dependabot opens update pull requests for `packaging/mcpb`.
 
 ## How a user checks a download
@@ -130,8 +134,8 @@ Compare the file's SHA-256 with its line in `SHA256SUMS`:
 
 On Linux: `sha256sum --check --ignore-missing SHA256SUMS` in the download folder.
 
-The release job attests every file in `SHA256SUMS`. The check below is meant for that attestation; it has not been
-run against a real release yet (see "Not yet verified"). It needs the GitHub CLI:
+The release job attests every file in `SHA256SUMS`. The check below was run on the six files of the v0.1.0 draft
+release on 2026-11-13 and exited 0 for each. It needs the GitHub CLI:
 
 ```powershell
 gh attestation verify .\mssql-readonly-mcp-X.Y.Z-win-x64.zip --repo oguzhanpisgin/mssql-readonly-mcp

@@ -145,8 +145,9 @@ Audit (`tests/MssqlReadOnlyMcp.Audit.Tests`, no database needed):
   of 9 exactly one fails with the bound's message. Run on Windows, and in CI on Ubuntu, where they passed on
   2026-11-13.
 
-Integration (`tests/MssqlReadOnlyMcp.IntegrationTests`, a real SQL Server in a container; passed on 2026-11-12 on
-the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images; one test is not stable: U-1R under "Known limits"):
+Integration (`tests/MssqlReadOnlyMcp.IntegrationTests`, a real SQL Server in a container; passed on 2026-11-13,
+locally and in CI, on the 2019 CU32 GDR13, 2022 CU27 and 2025 CU9 GDR1 images; one test is not stable: U-1R under
+"Known limits"):
 
 - `GateRefusalTests`: refused statements open no connection, create no command, and leave every table, the
   sequence, the object catalogue and the logins unchanged. A write sent past the gate on purpose is refused by
