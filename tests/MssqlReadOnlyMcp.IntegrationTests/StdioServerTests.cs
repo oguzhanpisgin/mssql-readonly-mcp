@@ -814,7 +814,6 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
         private readonly TaskCompletionSource stalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task accept = Task.CompletedTask;
         private volatile bool stalling;
-        private long serverBytes;
 
         /// <summary>Bytes per second SQL Server may send through the proxy; 0 for no limit. Read for every chunk.</summary>
         public int ServerBytesPerSecond { get; set; }
@@ -832,9 +831,6 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
         /// still flows. Read for every chunk; a connection already past the count is not held again.
         /// </summary>
         public long HoldClientAfterServerBytes { get; set; }
-
-        /// <summary>Bytes forwarded from SQL Server to the client so far, on all connections.</summary>
-        public long ServerBytes => Interlocked.Read(ref serverBytes);
 
         /// <summary>Stops both directions of every connection still open; returns how many were frozen.</summary>
         public int FreezeEstablished()
@@ -1025,7 +1021,6 @@ public sealed partial class StdioServerTests(SqlServerFixture fixture, Xunit.Abs
                         forwarded += part;
                         if (fromServer)
                         {
-                            Interlocked.Add(ref serverBytes, part);
                             var holdAt = HoldClientAfterServerBytes;
                             if (holdAt > 0 && forwarded - part < holdAt && forwarded >= holdAt)
                             {

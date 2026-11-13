@@ -23,9 +23,6 @@ internal static class BlockingSteps
     public static Task RunAsync(Action step) =>
         Task.Factory.StartNew(step, CancellationToken.None, OwnThread, TaskScheduler.Default);
 
-    public static Task<T> RunAsync<T>(Func<T> step) =>
-        Task.Factory.StartNew(step, CancellationToken.None, OwnThread, TaskScheduler.Default);
-
     /// <summary>
     /// Closes the reader, the command and the connection of a call, on a thread of their own. When the call's token was
     /// cancelled (its deadline or the client's cancel reached it), the physical connection is discarded rather than
