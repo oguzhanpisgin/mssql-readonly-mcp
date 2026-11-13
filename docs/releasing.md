@@ -79,7 +79,9 @@ If the `build` job stops at step 1, nothing was created. Fix the cause on `main`
 If a run stopped after the draft was created, delete that partial draft on the Releases page before running again.
 
 Protect `v*` tags with a repository ruleset (creation by the maintainer only); the main check runs from the workflow
-file of the tagged commit. This ruleset is not set up yet.
+file of the tagged commit. Since 2026-11-13 a repository ruleset blocks creating, moving and deleting `v*` tags for
+everyone except the maintainer, who can bypass it (needed for the recovery steps above; the bypass was checked on
+2026-11-13 with a throw-away tag, that another account is refused was not).
 
 ## Checked by hand, not by the workflow
 
@@ -101,20 +103,21 @@ checked by hand, because npm applies an override silently, even where the CLI as
 
 ## Not yet verified
 
-Checked only on a Windows machine with the .NET SDK installed; not yet shown:
+Checked on a Windows machine with the .NET SDK installed and by the hand run named below; not yet shown:
 
-- The first run of this workflow on GitHub, by hand and for a tag: the `main` check against `origin/main`, the
-  attestation step and the draft release.
+- The first run of this workflow for a tag: the `main` check against `origin/main`, the attestation step and the
+  draft release. (A hand run on 2026-11-13, on an earlier commit of `main` than the one tagged v0.1.0, built the
+  three archives and the three bundles on the Linux runner, version `0.0.0-dev`; the program of the win-x64 archive,
+  started without configuration, exited 2 with the line of step 3.)
 - That the executable bit is kept in the `.tar.gz` archives and `.mcpb` bundles built on the Linux runner.
 - `gh attestation verify` on a downloaded file.
 - Starting the Linux build on Linux and the macOS build on a Mac, including whether Gatekeeper starts a downloaded
   executable that is not notarized. The ad-hoc signature was checked on a build made on Windows only.
 - Starting a build on a machine with no .NET installed at all.
 - Installing a `.mcpb` bundle in any MCPB host other than the Microsoft Store build of Claude Desktop on Windows,
-  or on any other platform. On
-  Windows 11 on 2026-11-13 the win-x64 bundle was installed in the Microsoft Store build 5.11492.2.0 of Claude
-  Desktop; a tool call typed in its chat was not shown (MANIFEST.md says hosts add `.exe` on Windows themselves; the
-  manifest names `mssql-readonly-mcp.exe` in full, see `packaging/build-release.ps1`).
+  or on any other platform. On Windows 11 on 2026-11-13 the win-x64 bundle was installed in the Microsoft Store
+  build 5.11492.2.0 of Claude Desktop; a tool call typed in its chat was not shown (MANIFEST.md says hosts add `.exe`
+  on Windows themselves; the manifest names `mssql-readonly-mcp.exe` in full, see `packaging/build-release.ps1`).
 - That Dependabot opens update pull requests for `packaging/mcpb`.
 
 ## How a user checks a download

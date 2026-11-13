@@ -94,13 +94,18 @@ Limits, quoted from the `AuditLog` class documentation (`src/MssqlReadOnlyMcp.Au
 >   others. A file whose lock another handle holds is not verified by this process at that start. On Linux the same
 >   code is present but not yet run; its first run will be in CI. On every other platform a held lock stays fatal.
 
+That comment predates the first Linux run: on Linux the code has since run only in the repository's tests, which
+passed in CI on Ubuntu on 2026-11-13; whether each test reached the `flock` refusal (errno 11) was not read from a
+log line.
+
 The server has no command that copies the last hash elsewhere. To detect tail truncation or a rewrite, copy the
 `hash` of the last line to a place the server's user cannot write, on a schedule you choose.
 
 ## Several server processes on one audit path
 
 Where this holds: on Windows, measured; on Linux the code is present but had not run when this was written (its
-first run is the CI workflow); on every other platform, macOS included, the second server exits 2 as before.
+first run is the CI workflow), and has since run only in the repository's tests, which passed in CI on Ubuntu on
+2026-11-13; on every other platform, macOS included, the second server exits 2 as before.
 
 On Windows, a server whose configured audit file is held by another process does not exit: it writes a sibling file
 in the same folder (`AuditLog.OpenOrSibling`, `Program.cs`). The sibling's name inserts a number before the
@@ -160,14 +165,14 @@ sessions, and before this change the second exited with `audit log error: Audit 
 another writer or cannot be opened (IOException 0x80070020)`. The sibling behaviour itself was not yet measured in
 Claude Desktop.
 
-What was tested, on Windows only: in one process, a held configured file, the lowest free number, reopening a
-sibling, the bound of 8, a sibling and a configured file that do not verify, a held configured file that does not
-verify (skipped unverified, the limit above), lock errors other than "held", a log held without its lock, a folder
-that cannot be created, and 2, 8 and 9 writers started together (10 rounds each; `AuditSiblingTests.cs`); and two
-processes of the built server started together on one path, without SQL Server (`AuditSiblingProcessTests.cs`, in
-the Gate tests): each held a file of its own, exactly one wrote the stderr line, and both files verified. The CI
+What was tested, on Windows when this was written: in one process, a held configured file, the lowest free number,
+reopening a sibling, the bound of 8, a sibling and a configured file that do not verify, a held configured file that
+does not verify (skipped unverified, the limit above), lock errors other than "held", a log held without its lock, a
+folder that cannot be created, and 2, 8 and 9 writers started together (10 rounds each; `AuditSiblingTests.cs`); and
+two processes of the built server started together on one path, without SQL Server (`AuditSiblingProcessTests.cs`,
+in the Gate tests): each held a file of its own, exactly one wrote the stderr line, and both files verified. The CI
 workflow runs both test projects on Ubuntu, where the Linux `flock` code is the one checked; they had not run there
-when this was written. macOS was not tested.
+when this was written, and passed there on 2026-11-13. macOS was not tested.
 
 ## Requests with no audit line
 

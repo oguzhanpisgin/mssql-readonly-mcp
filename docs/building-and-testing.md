@@ -19,8 +19,9 @@ dotnet test tests/MssqlReadOnlyMcp.IntegrationTests -c Release
 - `MSSQL_TEST_IMAGE` selects the SQL Server container image, for example
   `mcr.microsoft.com/mssql/server:2019-CU32-GDR13-ubuntu-20.04`. Without it the tests use
   `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04` (`SqlServerFixture.cs`).
-- Test counts in the last full run (2026-11-13, on Windows, one run): Gate 387, Audit 86, Integration 259 on each
-  of the three images named under ["Prerequisites"](../README.md#1-prerequisites), all passed. In the full run
+- Test counts in the last full local run (2026-11-13, on Windows, one run): Gate 387, Audit 86, Integration 259 on
+  each of the three images named under ["Prerequisites"](../README.md#1-prerequisites), all passed; CI on Ubuntu
+  passed with the same counts on 2026-11-13. In the full run
   before it, on `eededa6` (then Gate 367, Audit 55, Integration 259), all passed except one integration test on the
   2022 image (258 of 259). That test,
   `Truncated_result_whose_cancel_is_held_until_the_network_works_again_holds_its_locks_until_then_only`,

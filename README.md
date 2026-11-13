@@ -200,13 +200,14 @@ Dates, versions and sources: [Installing, "What was tested"](docs/install.md#wha
 An audit file has one writer at a time, locked through a companion `<audit file>.lock` beside it (for example
 `claude-code.jsonl.lock`), which stays after the server exits. On Windows, a second server process started with the
 same audit file writes a sibling file instead (`claude-code.2.jsonl` beside `claude-code.jsonl`), each file with its
-own chain, and says so in one line on stderr; on Linux the same code path has not run yet. On macOS the second
+own chain, and says so in one line on stderr; on Linux the same code path has run only in the repository's tests,
+which passed in CI on Ubuntu on 2026-11-13. On macOS the second
 process exits 2 because the file is locked ([The audit log](docs/audit-log.md#several-server-processes-on-one-audit-path)).
 
 #### Claude Desktop
 
-In the PowerShell window of step 1, download the bundle (`.mcpb`) of the same release to your Downloads folder and
-check it:
+In the PowerShell window of step 1, or a new one set up again as step 1 says, download the bundle (`.mcpb`) of the
+same release to your Downloads folder and check it:
 
 ```powershell
 Invoke-WebRequest "$base/mssql-readonly-mcp-$v-win-x64.mcpb" -OutFile "$HOME\Downloads\mssql-readonly-mcp-$v-win-x64.mcpb"

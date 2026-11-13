@@ -6,8 +6,8 @@ tests and the code security review were run apart from the writing of the code a
 not a third-party audit, not a penetration test by an outside firm, and not a certification. Every attack run, the
 code security review and the scans took place on 2026-11-12, and the last test suites and a rescan of the working
 tree with the npm overrides (trivy, osv-scanner, npm audit) on 2026-11-13; times below are UTC. Attack test run 5
-tested `a38fd06`. The test suites ran last on `eededa6`, which only removes an unused method and an unused test
-counter from the code of `a38fd06`; run 5 did not test it.
+tested `a38fd06`. The test suites of this record ran last on `eededa6`, which only removes an unused method and an
+unused test counter from the code of `a38fd06`; run 5 did not test it.
 
 | Tests | Public commit | Tree |
 | --- | --- | --- |
@@ -20,16 +20,31 @@ counter from the code of `a38fd06`; run 5 did not test it.
 
 Later commits change documentation and, on 2026-11-13, two files under `packaging/mcpb`: `package.json` and
 `package-lock.json`, the npm overrides for the MCPB CLI that packs the bundles
-([Dependency alerts](#dependency-alerts)). To check in a clone that the server source, the tests, the scripts, the
-workflows and the rest of `packaging` are still those of `eededa6`:
+([Dependency alerts](#dependency-alerts)). Later the same day they change how the audit file is opened (a second
+server process on the same path writes a sibling file:
+[The audit log](audit-log.md#several-server-processes-on-one-audit-path)), the texts of the connection-string
+configuration errors, the texts of the bundle manifest, and the tests for them. To list in a clone what differs from
+`eededa6` in the server source, the tests, the scripts, the workflows and `packaging`:
 
 ```powershell
 git diff --stat eededa6 HEAD -- src tests scripts packaging .github
 ```
 
-The expected output lists exactly those two files, `packaging/mcpb/package-lock.json` and
-`packaging/mcpb/package.json`, and a summary line of 2 files changed; any other file in it means the code differs
-from what was tested.
+At v0.1.0 it lists 13 files: `packaging/mcpb/` `manifest.json`, `package-lock.json`, `package.json`;
+`src/MssqlReadOnlyMcp.Audit/` `AuditLog.cs`, `AuditWriteException.cs`; `src/MssqlReadOnlyMcp/` `Program.cs`,
+`ServerConfig.cs`, `ServerStartup.cs`; `tests/MssqlReadOnlyMcp.Audit.Tests/AuditSiblingTests.cs`;
+`tests/MssqlReadOnlyMcp.Gate.Tests/` `AuditSiblingProcessTests.cs`, `ServerConfigMessageTests.cs`,
+`ServerProcess.cs`; `tests/MssqlReadOnlyMcp.IntegrationTests/StdioServerTests.cs`. Any other file means the code
+differs from what this page describes.
+
+The attack test runs of this page were not repeated on that later code, and the scans listed here were not re-run on
+it, except CodeQL, which runs on every push to `main` and every pull request, and gitleaks, which on 2026-11-13,
+before the push, found no leaks in the commit that published that code and in its archived tree. What covered it:
+three rounds of independent read-only review that asked first whether a line can be written to a file whose lock is
+not held, whether a file that does not verify can be skipped, whether an error other than "lock held" can move to
+the next file, and whether any part of the connection string reaches a message; and, on 2026-11-13, locally on
+Windows and in CI on Linux, the unit tests (Gate 387, Audit 86) and the integration tests (259 on each of the three
+images).
 
 Times: run 1, server built at 03:56; run 2, 05:59 to 07:58; run 3, 08:08 to 11:18; run 4, 15:43 to 20:00; run 5,
 22:16 to 23:59; code security review, 06:08; scans, round 1 at 05:59 and round 2 at 08:05; test suites, on
@@ -396,7 +411,7 @@ since 2026-11-13 its lock file resolves versions outside their ranges ([Dependen
 | C-5 | NOTE | Characters that only look like the end of a comment, a string or a name were not measured | Measured as a test (`Look_alike_end_inside_a_comment_a_string_or_an_identifier_ends_nothing_on_the_server`, 17 texts): the gate allows all 17, and SQL Server 2019, 2022 and 2025 read each as one statement |
 | C-6 | NOTE | After start, a failed login is answered with SQL Server's message, which names the login (error 18456) or the database (error 4060) | Named as a limit: [SECURITY.md](../SECURITY.md#known-limits), "Data leaves the building" |
 | C-7 | NOTE | A write that fails part-way leaves a partial last line; the recovery was not documented | Documented: [The audit log](audit-log.md), "After a failed write"; the removal step itself is not tested |
-| C-8 | LOW | The `.mcpb` bundles are attested without comparing the server files inside them with the build job's output | Open: depends on a packaging decision not yet made. What the attestation shows: [Releasing](releasing.md#what-the-workflow-does) |
+| C-8 | LOW | The `.mcpb` bundles are attested without comparing the server files inside them with the build job's output | Open: the v0.1.0 bundles ship with this limit. What the attestation shows: [Releasing](releasing.md#what-the-workflow-does) |
 | C-9 | NOTE | No NuGet lock file: transitive versions and package hashes are not pinned for release builds | Accepted for the first release |
 | C-10 | NOTE | The login script's stated character limits did not cover every use of its variables | Fixed in the header comment of `scripts/create-readonly-login.sql` |
 
@@ -449,8 +464,11 @@ file and from the new one:
   file with `tmp` 0.2.7; with 0.2.7, a prefix with `..` or a directory outside the temporary folder is refused,
   where 0.0.33 returned a path outside it.
 
-Not checked: packing on Linux, as the release workflow does (the zip then records each file's mode; that code is in
-the CLI, not in `tmp` or `zod`), and a run of the release workflow with the new lock file.
+Not checked in these tests: packing on Linux, as the release workflow does (the zip then records each file's mode;
+that code is in the CLI, not in `tmp` or `zod`), and a run of the release workflow with the new lock file. Later on
+2026-11-13 a hand run of the release workflow on `main` with the new lock file packed the three bundles on the Linux
+runner; their contents were not compared with the bundles packed on Windows, and the file modes they record were not
+read.
 
 ## What was not tested
 
@@ -597,7 +615,7 @@ Scanners:
 - The dependency scans know only the advisories published on the day of the scan.
 - The scanner versions are the ones installed on the maintainer's machine that day; trivy reported that version
   0.76.2 was available (it ran 0.75.0).
-- The release archives and bundles: the release workflow has not built one yet, so none was scanned
+- The release archives and bundles: the release workflow had built none when these tests ran, so none was scanned
   ([Releasing](releasing.md#not-yet-verified)).
 
 ## Repeat it
