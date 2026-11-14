@@ -13,6 +13,10 @@ Status: early release, actively maintained. Tested on SQL Server 2019, 2022 and 
 every change; what it promises, what it does not solve and how it was tested (["Building and testing"](docs/building-and-testing.md)) are written
 below.
 
+<img src="docs/img/demo.gif" width="100%" alt="Terminal recording against an invented database: list_tables returns four tables; run_query with a SELECT returns the top five customers by 2026 order total; run_query with an UPDATE is refused with 'NotSelect: refused by the read-only gate; UpdateStatement at line 1, column 1'; the refused call's audit line is shown with shortened hash values; verify-audit reports 4 lines verified.">
+
+The tool calls of the [recorded demo](docs/demo.md), sent by a script to the v0.1.1 server, on an invented database.
+
 <img src="docs/img/architecture-dark.svg" width="100%" alt="Architecture: an AI assistant starts mssql-readonly-mcp as a local stdio process and sends it tool calls. Inside the server: a read-only gate that accepts only text that passes an allowlist for one plain SELECT; a login check at startup: the server will not start with a login that fails its permission check (exit code 3); a hash-chained audit log, written before a result goes back. The allowed SELECT runs on one on-premises SQL Server database in a transaction that is always rolled back. Only the AI vendor is outside your building: it receives the rows the assistant reads, with table and column names and SQL Server error text.">
 
 ## What it promises
