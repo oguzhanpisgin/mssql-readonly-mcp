@@ -13,6 +13,11 @@ Status: early release, actively maintained. Tested on SQL Server 2019, 2022 and 
 every change; what it promises, what it does not solve and how it was tested (["Building and testing"](docs/building-and-testing.md)) are written
 below.
 
+Install: Claude Desktop opens the release bundle (`.mcpb`) in one step ([Claude Desktop](#claude-desktop)); Claude Code and
+other MCP clients use the release archive ([Connect your client](#3-connect-your-client)). Listed in the
+[official MCP registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.oguzhanpisgin/mssql-readonly-mcp)
+as `io.github.oguzhanpisgin/mssql-readonly-mcp`.
+
 <img src="docs/img/demo.gif" width="100%" alt="Terminal recording against an invented database: list_tables returns four tables; run_query with a SELECT returns the top five customers by 2026 order total; run_query with an UPDATE is refused with 'NotSelect: refused by the read-only gate; UpdateStatement at line 1, column 1'; the refused call's audit line is shown with shortened hash values; verify-audit reports 4 lines verified.">
 
 The tool calls of the [recorded demo](docs/demo.md), sent by a script to the v0.1.1 server, on an invented database.
@@ -373,6 +378,20 @@ The audit line for the call (or "none"):
 Where to send it: privately, through GitHub private vulnerability reporting (the "Report a vulnerability"
 button under the Security tab of <https://github.com/oguzhanpisgin/mssql-readonly-mcp>), as
 [SECURITY.md](SECURITY.md) "Reporting a problem" describes. Please do not open a public issue for it.
+
+## Privacy
+
+This project collects nothing about you or your data.
+
+- The server sends no telemetry, has no update check and runs no analytics. The only network connection it opens
+  is the SQL Server connection in your connection string (and, if you pick a Microsoft Entra authentication mode
+  there, the sign-in endpoints that mode uses).
+- The audit file stays on your machine, at the path you set; nothing is uploaded. Each line holds the call's SQL
+  text, decision, tables, row count, timing and hashes, never the returned row values.
+- What the assistant reads goes to the AI vendor that runs the model, through your MCP client, under that vendor's
+  terms: see [What it does not solve](#what-it-does-not-solve).
+- The connection string you give Claude Desktop is kept in the operating system's credential store (the bundle marks
+  it `sensitive`).
 
 ## Support and maintenance
 

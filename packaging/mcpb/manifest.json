@@ -15,6 +15,7 @@
   "homepage": "https://github.com/oguzhanpisgin/mssql-readonly-mcp",
   "support": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/issues",
   "license": "MIT",
+  "privacy_policies": ["https://github.com/oguzhanpisgin/mssql-readonly-mcp#privacy"],
   "icon": "icon.png",
   "server": {
     "type": "binary",
