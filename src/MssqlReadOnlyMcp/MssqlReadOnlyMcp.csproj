@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.15" />
     <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
     <!-- Version pin of a transitive dependency of Microsoft.Data.SqlClient 7.1.1, which brings 9.0.18
