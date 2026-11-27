@@ -96,8 +96,8 @@ A failed call returns text that starts with its reason word:
 
 If the `mssql-readonly` tools are not available, the server did not start. The usual causes, in order:
 
-1. The `mssql-readonly-mcp` program is not on the `PATH` of the process that started Claude Code. The plugin's
-   README has the install steps.
+1. The `mssql-readonly-mcp` program, or Node.js 18 or later (which runs the plugin's start file), is not on the
+   `PATH` of the process that started Claude Code. The plugin's README has the install steps.
 2. The connection string or the audit file path is not set: `/plugin configure` with the plugin's id in Claude
    Code (for example `mssql-readonly-mcp@mssql-readonly-mcp` when it came from the project's own marketplace)
    shows and sets the plugin's two options.

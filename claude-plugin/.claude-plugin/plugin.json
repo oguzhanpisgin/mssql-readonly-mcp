@@ -1,7 +1,7 @@
 {
   "name": "mssql-readonly-mcp",
   "displayName": "mssql-readonly-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Read one on-premises SQL Server database from Claude Code through the open-source mssql-readonly-mcp server: one plain SELECT per call, a login checked at startup, capped results, and a hash-chained audit file of every call.",
   "author": {
     "name": "Oguzhan Pisgin",

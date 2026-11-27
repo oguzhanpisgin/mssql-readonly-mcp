@@ -8,8 +8,10 @@ every call before any data goes back.
 
 The plugin holds no server code. It has three parts:
 
-- `.mcp.json` starts the program `mssql-readonly-mcp`, which you install yourself from the project's GitHub
-  releases (below), and passes it the two values you set when you enable the plugin.
+- `.mcp.json` runs `node` on the plugin's start file, `scripts/start.mjs` (about 70 lines, no dependencies). The
+  start file starts the program `mssql-readonly-mcp`, which you install yourself from the project's GitHub
+  releases (below), passes it the two values you set when you enable the plugin, and connects its input and
+  output to Claude Code.
 - A skill, `query-sql-server-read-only`, that tells Claude how to use the three tools (`list_tables`,
   `describe_table`, `run_query`): look up tables and columns before writing a query, keep queries small, stop at a
   refusal instead of working around it, and treat the audit file and personal data with care.
@@ -17,8 +19,9 @@ The plugin holds no server code. It has three parts:
 
 ## What the plugin runs, sends and stores
 
-- **Runs**: one local process, `mssql-readonly-mcp`, found on your `PATH`, with no arguments. The plugin downloads
-  nothing and installs nothing; it has no hooks and no scripts.
+- **Runs**: `node` with the plugin's start file, which starts one local process, `mssql-readonly-mcp`, found on
+  your `PATH`, with no arguments. The start file opens no network connection and writes no file. The plugin
+  downloads nothing and installs nothing; it has no hooks.
 - **Sends**: the server opens one kind of network connection, to the SQL Server named in your connection string
   (and, if you choose a Microsoft Entra authentication mode in it, to the sign-in endpoints that mode uses). It
   sends no telemetry and has no update check.
@@ -47,7 +50,10 @@ Download the archive for your platform from the
 [Five-minute start](https://github.com/oguzhanpisgin/mssql-readonly-mcp#five-minute-start) has the Windows blocks,
 and [Installing](https://github.com/oguzhanpisgin/mssql-readonly-mcp/blob/main/docs/install.md) has Linux and
 macOS. The release archives include the .NET runtime; no .NET SDK is needed. The plugin was written against
-server v0.1.1; the plugin's own version (0.1.0 in `plugin.json`) is counted separately from the server's.
+server v0.1.1; the plugin's own version (0.2.0 in `plugin.json`) is counted separately from the server's.
+
+The plugin's start file needs [Node.js](https://nodejs.org/) 18 or later on your `PATH`; `node --version` in a
+terminal shows whether you have it.
 
 Then put the program's folder on your `PATH`, so that Claude Code can start it by name. On Windows, for the folder
 of the Five-minute start:
@@ -127,9 +133,10 @@ Claude Code keeps the server's error lines in its MCP log for the server. In thi
 was a folder `mcp-logs-plugin-mssql-readonly-mcp-mssql-readonly` under
 `%LOCALAPPDATA%\claude-cli-nodejs\Cache\<folder named after the project folder>\`.
 
-- `Failed to connect`, and the log says `'mssql-readonly-mcp' is not recognized` (Windows) or that the command was
-  not found: the program is not on the `PATH` that Claude Code started with. Repeat the end of step 1 and restart
-  Claude Code.
+- `Failed to connect`, and the log says `the program 'mssql-readonly-mcp' was not found on PATH`: the program is
+  not on the `PATH` that Claude Code started with. Repeat the end of step 1 and restart Claude Code.
+- The log says that `node` is not recognized or was not found: install Node.js 18 or later, or put it on your
+  `PATH`, and restart Claude Code.
 - The log names a configuration error (exit code 2), a login that failed its permission check (exit code 3) or a
   SQL Server it cannot reach (exit code 4): see
   [Commands and exit codes](https://github.com/oguzhanpisgin/mssql-readonly-mcp/blob/main/docs/reference.md#commands-and-exit-codes).
@@ -140,13 +147,21 @@ was a folder `mcp-logs-plugin-mssql-readonly-mcp-mssql-readonly` under
 On 2026-11-27, on Windows 11 with Claude Code 2.1.332 and the published v0.1.1 Windows archive, in a separate
 Claude Code configuration folder: the plugin installed from a local copy of this repository's marketplace
 (`claude plugin marketplace add`, then `claude plugin install`), both values were saved with
-`claude plugin configure --values-stdin`,
-Claude Code started the program from `PATH`, the program created the audit file at the configured path, and it
-tried the configured SQL Server (which was not running; its error line was the one the server prints before exit
-code 4, "cannot connect to SQL Server or run the permission check"). With the program not on
-`PATH`, Claude Code reported the server as failed. Not tested yet: a full session against a running SQL Server
-through the plugin, the one-step `--marketplace` install from GitHub, typing the values in Claude Code's own
-dialog, Linux, macOS, and an install from Anthropic's directory.
+`claude plugin configure --values-stdin`, Claude Code started the program from `PATH`, the program created the
+audit file at the configured path, and it tried the configured SQL Server (which was not running; its error line
+was the one the server prints before exit code 4, "cannot connect to SQL Server or run the permission check").
+With the program not on `PATH`, Claude Code reported the server as failed. The same day the marketplace was added
+and the plugin installed from this GitHub repository.
+
+Plugin 0.2.0 (with the start file, on Node.js 26) was checked the same way from a local copy: Claude Code started
+`node .../scripts/start.mjs`, the start file started the program with both values, the audit file was created, and
+the same "cannot connect" line appeared. With the program not on `PATH`, Claude Code's log showed the start file's
+"was not found on PATH" line (run alone, the start file exits with code 127). Run alone with the connection string
+option empty and `MSSQL_CONNECTION_STRING` set in the user's own environment, the start file let the program stop
+with its configuration error (exit code 2) instead of using that other value.
+
+Not tested yet: a full session against a running SQL Server through the plugin, typing the values in Claude
+Code's own dialog, Linux, macOS, and an install from Anthropic's directory.
 
 ## Licence and support
 
