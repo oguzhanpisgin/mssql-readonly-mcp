@@ -8,10 +8,10 @@ every call before any data goes back.
 
 The plugin holds no server code. It has three parts:
 
-- `.mcp.json` runs `node` on the plugin's start file, `scripts/start.mjs` (about 70 lines, no dependencies). The
+- `.mcp.json` runs `node` on the plugin's start file, `scripts/start.mjs` (about 45 lines, no dependencies). The
   start file starts the program `mssql-readonly-mcp`, which you install yourself from the project's GitHub
-  releases (below), passes it the two values you set when you enable the plugin, and connects its input and
-  output to Claude Code.
+  releases (below), and connects its input and output to Claude Code. Claude Code hands the program the two
+  values you set when you enable the plugin; the start file does not read them.
 - A skill, `query-sql-server-read-only`, that tells Claude how to use the three tools (`list_tables`,
   `describe_table`, `run_query`): look up tables and columns before writing a query, keep queries small, stop at a
   refusal instead of working around it, and treat the audit file and personal data with care.
@@ -50,7 +50,7 @@ Download the archive for your platform from the
 [Five-minute start](https://github.com/oguzhanpisgin/mssql-readonly-mcp#five-minute-start) has the Windows blocks,
 and [Installing](https://github.com/oguzhanpisgin/mssql-readonly-mcp/blob/main/docs/install.md) has Linux and
 macOS. The release archives include the .NET runtime; no .NET SDK is needed. The plugin was written against
-server v0.1.1; the plugin's own version (0.2.0 in `plugin.json`) is counted separately from the server's.
+server v0.1.1; the plugin's own version (0.2.1 in `plugin.json`) is counted separately from the server's.
 
 The plugin's start file needs [Node.js](https://nodejs.org/) 18 or later on your `PATH`; `node --version` in a
 terminal shows whether you have it.
@@ -153,12 +153,10 @@ was the one the server prints before exit code 4, "cannot connect to SQL Server 
 With the program not on `PATH`, Claude Code reported the server as failed. The same day the marketplace was added
 and the plugin installed from this GitHub repository.
 
-Plugin 0.2.0 (with the start file, on Node.js 26) was checked the same way from a local copy: Claude Code started
-`node .../scripts/start.mjs`, the start file started the program with both values, the audit file was created, and
-the same "cannot connect" line appeared. With the program not on `PATH`, Claude Code's log showed the start file's
-"was not found on PATH" line (run alone, the start file exits with code 127). Run alone with the connection string
-option empty and `MSSQL_CONNECTION_STRING` set in the user's own environment, the start file let the program stop
-with its configuration error (exit code 2) instead of using that other value.
+Plugin 0.2.1 (with the start file, on Node.js 26) was checked the same way from a local copy: Claude Code started
+`node .../scripts/start.mjs`, the start file started the program, the program received both values and created
+the audit file, and the same "cannot connect" line appeared. With the program not on `PATH`, Claude Code's log showed the start file's
+"was not found on PATH" line (run alone, the start file exits with code 127).
 
 Not tested yet: a full session against a running SQL Server through the plugin, typing the values in Claude
 Code's own dialog, Linux, macOS, and an install from Anthropic's directory.

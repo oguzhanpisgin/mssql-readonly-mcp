@@ -193,7 +193,7 @@ Every client starts the program itself and passes it two variables: `MSSQL_CONNE
 | --- | --- | --- |
 | [Claude Desktop](#claude-desktop) | The operating system's credential store (the bundle marks it `sensitive`) | A bundle built before v0.1.0 (no bundle of a published release) installed in the Microsoft Store build; its server answered `tools/list`; a tool call typed in the chat window not shown |
 | [Claude Code](#claude-code) | Plain text, in Claude Code's own file in your home folder | Yes: listed as connected |
-| [Claude Code plugin](#claude-code-plugin) | Claude Code's credential storage (the plugin marks it `sensitive`); on Windows, plain text in `.credentials.json` in Claude Code's configuration folder | Started from `PATH` through the plugin's Node.js start file with both values; not yet run against a SQL Server through the plugin |
+| [Claude Code plugin](#claude-code-plugin) | Claude Code's credential storage (the plugin marks it `sensitive`); on Windows, plain text in `.credentials.json` in Claude Code's configuration folder | Started from `PATH` through the plugin's Node.js start file; the program received both values; not yet run against a SQL Server through the plugin |
 | [Codex CLI and the ChatGPT desktop app](#codex-cli-and-the-chatgpt-desktop-app) | Nowhere: forwarded from the environment Codex starts in | The entry is listed; the forwarding is documented, not tested |
 | [VS Code with GitHub Copilot](#vs-code-with-github-copilot) | Asked when the server first starts, then kept by VS Code | Documented; the program was started with the block's command |
 | [Cursor](#cursor) | Nowhere: read from Cursor's environment | Documented; the program was started with the block's command |

@@ -5,8 +5,8 @@
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/start.mjs"],
       "env": {
-        "CLAUDE_PLUGIN_OPTION_CONNECTION_STRING": "${user_config.connection_string}",
-        "CLAUDE_PLUGIN_OPTION_AUDIT_LOG": "${user_config.audit_log}"
+        "MSSQL_CONNECTION_STRING": "${user_config.connection_string}",
+        "MSSQL_MCP_AUDIT_LOG": "${user_config.audit_log}"
       }
     }
   }
