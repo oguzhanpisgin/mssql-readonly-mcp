@@ -1,0 +1,33 @@
+{
+  "name": "mssql-readonly-mcp",
+  "displayName": "mssql-readonly-mcp",
+  "version": "0.1.0",
+  "description": "Read one on-premises SQL Server database from Claude Code through the open-source mssql-readonly-mcp server: one plain SELECT per call, a login checked at startup, capped results, and a hash-chained audit file of every call.",
+  "author": {
+    "name": "Oguzhan Pisgin",
+    "url": "https://github.com/oguzhanpisgin"
+  },
+  "homepage": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/tree/main/claude-plugin#readme",
+  "repository": "https://github.com/oguzhanpisgin/mssql-readonly-mcp",
+  "license": "MIT",
+  "keywords": ["sql-server", "database", "read-only", "audit", "t-sql"],
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/tree/main/claude-plugin#readme",
+  "supportUrl": "https://github.com/oguzhanpisgin/mssql-readonly-mcp/issues",
+  "privacyPolicyUrl": "https://github.com/oguzhanpisgin/mssql-readonly-mcp#privacy",
+  "userConfig": {
+    "connection_string": {
+      "type": "string",
+      "title": "SQL Server connection string",
+      "description": "Connection string of the read-only login, for example Server=sql.example.local;Database=ExampleDb;User ID=mcp_reader;Password=... Claude Code keeps it outside settings.json; on Windows it is kept in plain text in .credentials.json in Claude Code's configuration folder (see the plugin README).",
+      "required": true,
+      "sensitive": true
+    },
+    "audit_log": {
+      "type": "string",
+      "title": "Audit file path",
+      "description": "Absolute path of the audit file the server writes, for example C:/Users/you/mcp-audit/claude-code-plugin.jsonl or /home/you/mcp-audit/claude-code-plugin.jsonl. Use a folder only your account can read and write.",
+      "required": true
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mssql-readonly": {
+      "type": "stdio",
+      "command": "mssql-readonly-mcp",
+      "args": [],
+      "env": {
+        "MSSQL_CONNECTION_STRING": "${user_config.connection_string}",
+        "MSSQL_MCP_AUDIT_LOG": "${user_config.audit_log}"
+      }
+    }
+  }
+}

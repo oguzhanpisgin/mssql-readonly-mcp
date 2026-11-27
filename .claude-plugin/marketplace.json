@@ -1,0 +1,15 @@
+{
+  "name": "mssql-readonly-mcp",
+  "description": "The mssql-readonly-mcp plugin for Claude Code: read one SQL Server database through a read-only, audited MCP server.",
+  "owner": {
+    "name": "Oguzhan Pisgin",
+    "url": "https://github.com/oguzhanpisgin"
+  },
+  "plugins": [
+    {
+      "name": "mssql-readonly-mcp",
+      "source": "./claude-plugin",
+      "description": "Read one on-premises SQL Server database from Claude Code through the mssql-readonly-mcp server: one plain SELECT per call, a login checked at startup, capped results, and a hash-chained audit file of every call."
+    }
+  ]
+}

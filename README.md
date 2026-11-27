@@ -14,7 +14,8 @@ every change; what it promises, what it does not solve and how it was tested (["
 below.
 
 Install: Claude Desktop opens the release bundle (`.mcpb`) in one step ([Claude Desktop](#claude-desktop)); Claude Code and
-other MCP clients use the release archive ([Connect your client](#3-connect-your-client)). Listed in the
+other MCP clients use the release archive ([Connect your client](#3-connect-your-client)); Claude Code can also
+start it through this repository's plugin ([Claude Code plugin](#claude-code-plugin)). Listed in the
 [official MCP registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.oguzhanpisgin/mssql-readonly-mcp)
 as `io.github.oguzhanpisgin/mssql-readonly-mcp`.
 
@@ -192,6 +193,7 @@ Every client starts the program itself and passes it two variables: `MSSQL_CONNE
 | --- | --- | --- |
 | [Claude Desktop](#claude-desktop) | The operating system's credential store (the bundle marks it `sensitive`) | A bundle built before v0.1.0 (no bundle of a published release) installed in the Microsoft Store build; its server answered `tools/list`; a tool call typed in the chat window not shown |
 | [Claude Code](#claude-code) | Plain text, in Claude Code's own file in your home folder | Yes: listed as connected |
+| [Claude Code plugin](#claude-code-plugin) | Claude Code's credential storage (the plugin marks it `sensitive`); on Windows, plain text in `.credentials.json` in Claude Code's configuration folder | Started from `PATH` with both values; not yet run against a SQL Server through the plugin |
 | [Codex CLI and the ChatGPT desktop app](#codex-cli-and-the-chatgpt-desktop-app) | Nowhere: forwarded from the environment Codex starts in | The entry is listed; the forwarding is documented, not tested |
 | [VS Code with GitHub Copilot](#vs-code-with-github-copilot) | Asked when the server first starts, then kept by VS Code | Documented; the program was started with the block's command |
 | [Cursor](#cursor) | Nowhere: read from Cursor's environment | Documented; the program was started with the block's command |
@@ -254,6 +256,20 @@ as you can read; Claude Code stores the value in plain text in its own file `.cl
 this folder only (the default `local` scope), readable by any process running as you. A project `.mcp.json` with
 `${MSSQL_CONNECTION_STRING}` is not used here: with Claude Code 2.1.323 such a reference reached the server empty
 ([Installing](docs/install.md#claude-code)).
+
+#### Claude Code plugin
+
+The folder [claude-plugin](claude-plugin/README.md) is a Claude Code plugin: it starts this program from your
+`PATH`, asks for the connection string and the audit file path when you enable it, and adds a skill that teaches
+Claude to use the three tools safely. It holds no server code; install the program first (step 1), put its folder
+on your `PATH`, then, in Claude Code:
+
+```text
+/plugin marketplace add oguzhanpisgin/mssql-readonly-mcp
+/plugin install mssql-readonly-mcp@mssql-readonly-mcp
+```
+
+Steps, where the values are kept, and what was tested: [claude-plugin/README.md](claude-plugin/README.md).
 
 #### Codex CLI and the ChatGPT desktop app
 
